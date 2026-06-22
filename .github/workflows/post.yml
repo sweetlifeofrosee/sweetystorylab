@@ -1,0 +1,34 @@
+name: Daily Horror Post
+
+on:
+  schedule:
+    - cron: '0 11 * * *'  # 11AM UTC = 7PM PHT (UTC+8)
+  workflow_dispatch:       # Manual trigger for testing
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests Pillow
+
+      - name: Download Lora Italic font
+        run: |
+          curl -L "https://github.com/google/fonts/raw/main/ofl/lora/Lora%5Bwght%5D.ttf" -o /tmp/Lora-Italic.ttf
+
+      - name: Run horror bot
+        env:
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
+        run: python post.py
