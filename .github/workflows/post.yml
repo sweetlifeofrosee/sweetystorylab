@@ -23,6 +23,9 @@ jobs:
 
       - name: Install Python dependencies
         run: pip install requests Pillow
+        
+      - name: Install Edge TTS
+        run: pip install edge-tts
 
       - name: Install FFmpeg
         run: sudo apt-get install -y ffmpeg
