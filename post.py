@@ -225,40 +225,41 @@ def generate_voice(scenes):
 def vtt_to_srt(vtt_path, srt_path):
     """Convert WebVTT subtitle format to SRT for FFmpeg"""
     with open(vtt_path, "r", encoding="utf-8") as f:
-        content = f.read()
+        raw = f.read()
 
-    # Remove WEBVTT header and NOTE blocks
-    content = re.sub(r"WEBVTT\n\n", "", content)
-    content = re.sub(r"NOTE.*?\n\n", "", content, flags=re.DOTALL)
+    raw = re.sub(r"WEBVTT\n", "", raw)
+    raw = re.sub(r"NOTE[^\n]*\n[^\n]*\n", "", raw)
 
-    blocks = content.strip().split("\n\n")
-    srt_blocks = []
+    blocks = raw.strip().split("\n\n")
+    srt_out = []
     counter = 1
 
     for block in blocks:
-        lines = block.strip().split("\n")
-        if not lines: continue
-        # Find timing line (contains -->)
+        lines = [l.strip() for l in block.strip().split("\n") if l.strip()]
+        if not lines:
+            continue
         timing_line = next((l for l in lines if "-->" in l), None)
-        if not timing_line: continue
+        if not timing_line:
+            continue
 
-        # Convert VTT time (00:00:00.000) to SRT time (00:00:00,000)
-        timing = timing_line.replace(".", ",", 2)
-        # Remove any VTT positioning tags
-        timing = re.sub(r" align:\w+ position:\S+", "", timing)
+        # VTT uses dots, SRT uses commas for milliseconds
+        timing = re.sub(r"(\d{2}:\d{2}:\d{2})\.(\d{3})", r"\1,\2", timing_line)
+        timing = re.sub(r"\s+(align|position|line|size):\S+", "", timing).strip()
 
-        # Get text lines (after timing)
-        text_lines = [l for l in lines if "-->" not in l and l.strip()]
-        # Remove VTT tags like <00:00:00.000><c>word</c>
-        text = re.sub(r"<[^>]+>", "", " ".join(text_lines)).strip()
+        # Extract text, remove all VTT tags
+        text_lines = [l for l in lines if "-->" not in l]
+        text = " ".join(text_lines)
+        text = re.sub(r"<[^>]+>", "", text).strip()
+        # Remove any leading number artifacts like "4 " or "12."
+        text = re.sub(r"^\d+[\s\.]+", "", text).strip()
 
         if text:
-            srt_blocks.append(f"{counter}\n{timing}\n{text}")
+            srt_out.append(f"{counter}\n{timing}\n{text}")
             counter += 1
 
     with open(srt_path, "w", encoding="utf-8") as f:
-        f.write("\n\n".join(srt_blocks))
-    print(f"SRT subtitle file created ({counter-1} blocks)")
+        f.write("\n\n".join(srt_out))
+    print(f"SRT created: {counter-1} subtitle blocks")
 
 # ============================================================
 # STEP 4: BUILD VIDEO — 3-IMAGE SLIDESHOW + VOICE + SUBTITLES
@@ -306,7 +307,7 @@ def build_video(image_paths, voice_path, srt_path, scenes, title):
     # Subtitle style: large white text, centered, horror font feel
     subtitle_style = (
         "FontName=Arial,"
-        "FontSize=22,"
+        "FontSize=16,"
         "PrimaryColour=&H00FFFFFF,"
         "OutlineColour=&H00000000,"
         "BackColour=&H80000000,"
@@ -461,8 +462,8 @@ def log_result(title, video_id, status, error=None):
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT, title TEXT, video_id TEXT, status TEXT, error TEXT
     )""")
-    c.execute("INSERT INTO posts VALUES (?,?,?,?,?,?)",
-              (datetime.now().isoformat(), title, video_id or "", status, error or "", ""))
+    c.execute("INSERT INTO posts (timestamp, title, video_id, status, error) VALUES (?,?,?,?,?)",
+              (datetime.now().isoformat(), title, video_id or "", status, error or ""))
     conn.commit()
     conn.close()
     print(f"Logged: {status} — {title}")
