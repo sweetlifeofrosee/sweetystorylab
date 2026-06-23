@@ -205,7 +205,7 @@ def generate_voice(scenes):
     result = subprocess.run(
         [
             "edge-tts",
-            "--voice", "en-US-AriaNeural",
+            "--voice", "en-US-DavisNeural",
             "--rate=-10%",
             "--pitch=-5Hz",
             "--text", clean,
