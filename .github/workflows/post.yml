@@ -2,9 +2,7 @@ name: Horror Reels Bot
 
 on:
   schedule:
-    - cron: '0 0 * * *'   # 8AM PHT  (UTC+8 = midnight UTC)
-    - cron: '0 6 * * *'   # 2PM PHT
-    - cron: '0 12 * * *'  # 8PM PHT
+    - cron: '0 11 * * *'  # 7PM PHT only
   workflow_dispatch:        # Manual trigger for testing
 
 jobs:
