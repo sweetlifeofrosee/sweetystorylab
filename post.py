@@ -341,9 +341,7 @@ def generate_srt_from_voice(text):
         counter += 1
 
     with open(SRT_FILE, "w", encoding="utf-8") as f:
-        f.write("
-
-".join(srt_blocks))
+        f.write("\n\n".join(srt_blocks))
     print(f"✅ SRT generated from timing estimate ({counter-1} blocks)")
 
 def generate_voice(scenes):
