@@ -1,13 +1,16 @@
-name: Daily Horror Post
+name: Horror Reels Bot
 
 on:
   schedule:
-    - cron: '0 11 * * *'  # 11AM UTC = 7PM PHT (UTC+8)
-  workflow_dispatch:       # Manual trigger for testing
+    - cron: '0 0 * * *'   # 8AM PHT  (UTC+8 = midnight UTC)
+    - cron: '0 6 * * *'   # 2PM PHT
+    - cron: '0 12 * * *'  # 8PM PHT
+  workflow_dispatch:        # Manual trigger for testing
 
 jobs:
   post:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repo
@@ -18,17 +21,28 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: pip install requests Pillow
 
-      - name: Download Lora Italic font
-        run: |
-          curl -L "https://github.com/google/fonts/raw/main/ofl/lora/Lora%5Bwght%5D.ttf" -o /tmp/Lora-Italic.ttf
+      - name: Install FFmpeg
+        run: sudo apt-get install -y ffmpeg
 
-      - name: Run horror bot
+      - name: Download Lora font
+        run: |
+          curl -L "https://github.com/google/fonts/raw/main/ofl/lora/Lora%5Bwght%5D.ttf" \
+            -o /tmp/Lora-Italic.ttf
+
+      - name: Run horror reels bot
         env:
           FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
         run: python post.py
+
+      - name: Save log (optional)
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: horror-log
+          path: horror_log.db
+          retention-days: 30
