@@ -172,10 +172,17 @@ def get_content():
     return FALLBACK
 
 # ============================================================
-# STEP 2: GENERATE 3 HORROR IMAGES
+# STEP 2: GENERATE 3 HORROR IMAGES WITH POLLINATIONS.AI
+# ============================================================
+# Pollinations.ai is a completely free AI image generator.
+# No API key needed — just call a URL with the prompt.
+# We generate one image per scene with a random seed each time
+# so every post gets unique images even with similar prompts.
+# Falls back to a plain dark image if Pollinations is down.
 # ============================================================
 def generate_image(prompt, index):
     print(f"Generating image {index+1}/3...")
+    # Add cinematic horror keywords to boost image quality
     full_prompt = (
         f"{prompt}, dark cinematic horror, eerie atmosphere, "
         "dramatic lighting, photorealistic, high quality, "
@@ -195,10 +202,18 @@ def generate_image(prompt, index):
 # ============================================================
 # STEP 3: GENERATE VOICE + SUBTITLES WITH EDGE TTS
 # ============================================================
+# Edge TTS uses Microsoft's free neural voices — sounds natural.
+# No API key needed. Runs as a command line tool.
+# We use en-US-GuyNeural: deep, clear, dramatic male voice.
+# --rate=-10% slows it down slightly for suspenseful pacing.
+# Edge TTS also outputs a .vtt subtitle file automatically —
+# each word is timestamped so subtitles sync perfectly to voice.
+# We convert .vtt to .srt format which FFmpeg understands.
+# ============================================================
 def generate_voice(scenes):
     print("Generating voice with Edge TTS...")
 
-    # Combine all narrations into one script
+    # Combine all 3 scene narrations into one continuous script
     full_narration = " ".join(s["narration"] for s in scenes)
     clean = full_narration.replace("#", "").replace("👻", "").replace("...", ". ").strip()
 
@@ -222,7 +237,27 @@ def generate_voice(scenes):
     return VOICE_FILE, SRT_FILE
 
 def vtt_to_srt(vtt_path, srt_path):
-    """Convert WebVTT subtitle format to SRT for FFmpeg"""
+    """
+    Convert WebVTT (.vtt) subtitle file to SRT (.srt) format.
+
+    Why: Edge TTS outputs .vtt format but FFmpeg's subtitle
+    filter works best with .srt format.
+
+    VTT format:                    SRT format:
+    WEBVTT                         1
+                                   00:00:01,000 --> 00:00:03,000
+    00:00:01.000 --> 00:00:03.000  First subtitle text
+    First subtitle text
+                                   2
+                                   00:00:03,500 --> 00:00:05,000
+    00:00:03.500 --> 00:00:05.000  Second subtitle text
+    Second subtitle text
+
+    Key differences:
+    - VTT uses dots for milliseconds, SRT uses commas
+    - VTT has positioning tags we need to remove
+    - VTT has word-level timing tags like <00:00:01.500><c>word</c>
+    """
     with open(vtt_path, "r", encoding="utf-8") as f:
         raw = f.read()
 
@@ -263,6 +298,23 @@ def vtt_to_srt(vtt_path, srt_path):
 # ============================================================
 # STEP 4: BUILD VIDEO — 3-IMAGE SLIDESHOW + VOICE + SUBTITLES
 # ============================================================
+# FFmpeg is a free, powerful video processing tool.
+# Pre-installed on GitHub Actions ubuntu runners — no setup needed.
+#
+# Our video building process:
+#   A. Build one 1080x1920 frame per scene using Pillow
+#      - Blurred dark background from the horror image
+#      - Original image centered in the middle
+#      - Dark gradient overlay for text readability
+#      - Title at top, scene dots, brand name at bottom
+#   B. Create a concat file listing each frame + its duration
+#      (total audio duration / 3 scenes = seconds per frame)
+#   C. FFmpeg stitches frames into a slideshow video
+#   D. FFmpeg adds voice audio + burns subtitles onto video
+#
+# Output: 1080x1920 MP4, H.264 video + AAC audio
+# Facebook Reels requires exactly this format.
+# ============================================================
 def build_video(image_paths, voice_path, srt_path, scenes, title):
     print("Building video with FFmpeg...")
 
@@ -302,11 +354,11 @@ def build_video(image_paths, voice_path, srt_path, scenes, title):
         "-r", "30", temp_video
     ], check=True, capture_output=True)
 
-    # Step B: Add audio + burned subtitles
-    # Subtitle style: large white text, centered, horror font feel
+    # Step B: Add voice + background music + burned subtitles
+    # Subtitle style: white text, black outline, centered bottom
     subtitle_style = (
         "FontName=Arial,"
-        "FontSize=16,"
+        "FontSize=13,"
         "PrimaryColour=&H00FFFFFF,"
         "OutlineColour=&H00000000,"
         "BackColour=&H80000000,"
@@ -317,18 +369,54 @@ def build_video(image_paths, voice_path, srt_path, scenes, title):
         "MarginV=120"       # Above brand name
     )
 
-    result = subprocess.run([
-        "ffmpeg", "-y",
-        "-i", temp_video,
-        "-i", voice_path,
-        "-c:v", "libx264",
-        "-vf", f"subtitles={srt_path}:force_style='{subtitle_style}'",
-        "-c:a", "aac", "-b:a", "192k",
-        "-pix_fmt", "yuv420p",
-        "-shortest",
-        "-movflags", "+faststart",
-        VIDEO_FILE
-    ], capture_output=True, text=True, timeout=180)
+    # Check if suspense music file exists in repo
+    music_path = "sounds/suspense.mp3"
+    has_music = os.path.exists(music_path)
+
+    if has_music:
+        print("Mixing in background suspense music at 15% volume...")
+        # FFmpeg audio mixing explanation:
+        # -i temp_video   = our slideshow video (no audio)
+        # -i voice_path   = the narration voice (foreground)
+        # -i music_path   = suspense music (background)
+        # -stream_loop -1 = loop music infinitely if shorter than video
+        # amix filter:
+        #   inputs=2      = mix voice + music together
+        #   weights=1 0.15 = voice at 100%, music at 15%
+        #   duration=first = stop when voice ends
+        # normalize=0    = don't auto-normalize (keeps our volumes)
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", temp_video,
+            "-i", voice_path,
+            "-stream_loop", "-1", "-i", music_path,
+            "-c:v", "libx264",
+            "-vf", f"subtitles={srt_path}:force_style='{subtitle_style}'",
+            "-filter_complex",
+            "[1:a][2:a]amix=inputs=2:weights=1 0.15:duration=first:normalize=0[aout]",
+            "-map", "0:v",
+            "-map", "[aout]",
+            "-c:a", "aac", "-b:a", "192k",
+            "-pix_fmt", "yuv420p",
+            "-shortest",
+            "-movflags", "+faststart",
+            VIDEO_FILE
+        ], capture_output=True, text=True, timeout=180)
+    else:
+        print("No suspense music found — posting voice only...")
+        # Fallback: no background music, just voice
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", temp_video,
+            "-i", voice_path,
+            "-c:v", "libx264",
+            "-vf", f"subtitles={srt_path}:force_style='{subtitle_style}'",
+            "-c:a", "aac", "-b:a", "192k",
+            "-pix_fmt", "yuv420p",
+            "-shortest",
+            "-movflags", "+faststart",
+            VIDEO_FILE
+        ], capture_output=True, text=True, timeout=180)
 
     if result.returncode != 0:
         raise Exception(f"FFmpeg final failed: {result.stderr[-500:]}")
@@ -372,17 +460,18 @@ def build_frame(img_path, title, scene_index):
     draw = ImageDraw.Draw(canvas)
 
     try:
-        font_title = ImageFont.truetype("/tmp/Lora-Italic.ttf", 68)
-        font_brand = ImageFont.truetype("/tmp/Lora-Italic.ttf", 30)
-        font_scene = ImageFont.truetype("/tmp/Lora-Italic.ttf", 26)
+        font_title = ImageFont.truetype("/tmp/Lora-Italic.ttf", 48)  # Smaller title
+        font_brand = ImageFont.truetype("/tmp/Lora-Italic.ttf", 26)  # Smaller brand
+        font_scene = ImageFont.truetype("/tmp/Lora-Italic.ttf", 22)  # Smaller dots
     except:
         font_title = font_brand = font_scene = ImageFont.load_default()
 
-    # Title
-    draw.text((542, 152), title, font=font_title, fill=(0,0,0,200), anchor="mm")
-    draw.text((540, 150), title, font=font_title, fill=(255,255,255,255), anchor="mm")
+    # Title — truncate if too long so it fits on screen
+    display_title = title if len(title) <= 28 else title[:25] + "..."
+    draw.text((542, 152), display_title, font=font_title, fill=(0,0,0,200), anchor="mm")
+    draw.text((540, 150), display_title, font=font_title, fill=(255,255,255,255), anchor="mm")
 
-    # Decorative line
+    # Decorative line under title
     draw.rectangle([300, 200, 780, 203], fill=(255,255,255,140))
 
     # Scene indicator
@@ -402,6 +491,26 @@ def build_frame(img_path, title, scene_index):
 
 # ============================================================
 # STEP 5: UPLOAD TO FACEBOOK AS REEL
+# ============================================================
+# Facebook Reels upload is a 3-step process via Graph API:
+#
+# Step A — Initialize upload session:
+#   POST to /video_reels with upload_phase=start
+#   Facebook returns a video_id for this upload session
+#
+# Step B — Upload the actual video binary:
+#   POST the raw MP4 bytes to Facebook's upload server
+#   (rupload.facebook.com) using the video_id
+#   We send file size and offset in headers so Facebook
+#   knows how much data to expect
+#
+# Step C — Publish the Reel:
+#   POST to /video_reels with upload_phase=finish
+#   Include the caption (story text + hashtags)
+#   Set video_state=PUBLISHED to make it live immediately
+#
+# Note: Facebook processes the video after upload so there
+# may be a short delay before it appears on the page.
 # ============================================================
 def upload_reel(video_path, caption):
     print("Uploading Reel...")
@@ -453,6 +562,20 @@ def upload_reel(video_path, caption):
 
 # ============================================================
 # STEP 6: LOG TO SQLITE
+# ============================================================
+# We keep a simple local log of every post attempt.
+# SQLite is a lightweight database built into Python —
+# no setup needed, stores everything in one file (horror_log.db).
+#
+# Each row records:
+#   - timestamp: when the post was attempted
+#   - title: the horror story title
+#   - video_id: Facebook's ID for the posted Reel
+#   - status: "success" or "failed"
+#   - error: error message if it failed
+#
+# The log file is saved as a GitHub Actions artifact
+# so you can download and review it anytime.
 # ============================================================
 def log_result(title, video_id, status, error=None):
     conn = sqlite3.connect(DB_FILE)
