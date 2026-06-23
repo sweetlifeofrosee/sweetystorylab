@@ -205,8 +205,8 @@ def generate_voice(scenes):
     result = subprocess.run(
         [
             "edge-tts",
-            "--voice", "en-US-DavisNeural",
-            "--rate=-15%",
+            "--voice", "en-US-GuyNeural",
+            "--rate=-10%",
             "--text", clean,
             "--write-media", VOICE_FILE,
             "--write-subtitles", VTT_FILE
