@@ -4,7 +4,7 @@
 # Runs 3x daily via GitHub Actions: 8AM / 2PM / 8PM PHT
 # Full pipeline:
 #   1. Generate Taglish horror story (Groq)
-#   2. Generate voice narration (Piper TTS)
+#   2. Generate voice narration (Edge TTS - natural voice)
 #   3. Generate horror image (Pollinations.ai)
 #   4. Build 1080x1920 vertical video (FFmpeg)
 #   5. Upload as Facebook Reel (Graph API)
@@ -20,6 +20,7 @@ import json
 import sqlite3
 import subprocess
 import textwrap
+import asyncio
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
@@ -34,19 +35,16 @@ GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 # PATHS
 # ============================================================
 WORK_DIR = "/tmp/horrorbot"
-VOICE_FILE = f"{WORK_DIR}/voice.wav"
+VOICE_FILE = f"{WORK_DIR}/voice.mp3"
 IMAGE_FILE = f"{WORK_DIR}/image.jpg"
 BG_FILE = f"{WORK_DIR}/bg.jpg"
 VIDEO_FILE = f"{WORK_DIR}/reel.mp4"
-SUBTITLE_FILE = f"{WORK_DIR}/subs.srt"
 DB_FILE = "horror_log.db"
-PIPER_BIN = f"{WORK_DIR}/piper/piper"
-PIPER_MODEL = f"{WORK_DIR}/piper/en_US-lessac-medium.onnx"
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
 # ============================================================
-# HORROR THEMES — picked randomly each run
+# HORROR THEMES
 # ============================================================
 HORROR_THEMES = [
     "aswang sa probinsya ng Capiz",
@@ -70,12 +68,12 @@ HORROR_THEMES = [
 # FALLBACK CONTENT
 # ============================================================
 FALLBACK = {
-    "title": "Ang Babae sa Ikatlong Palapag",
-    "story": "Lumipat kami sa bagong apartment noong Hunyo. Sabi ng kapitbahay, huwag kaming mag-alala sa ingay sa itaas. Walang nakatira sa ikatlong palapag. Unang linggo, tahimik. Ikalawang linggo, nagsimula kaming marinig ang mga yapak. Tuwing hatinggabi. Pataas. Pababa. Isang gabi, nagdesisyon si Mark na umakyat. Sampung minuto lang daw siya. Hindi na siya bumalik ng sampung minuto. Nandoon pa rin siya. Nakaupo sa sulok. Nakatingin sa dingding. Hindi sumasagot. Hanggang ngayon, hindi namin alam kung sino ang nakausap niya doon.",
-    "caption": "Hindi kami naniwala sa mga kwento ng kapitbahay... hanggang sa isang gabi. 👻",
+    "title": "The Third Floor",
+    "story": "We moved into a new apartment last June. The neighbor said not to worry about the noise upstairs. Nobody lives on the third floor. First week, quiet. Second week, we heard footsteps. Every midnight. Up. Down. Up. Down. One night, Mark decided to go up. Ten minutes, he said. He never came back in ten minutes. We found him sitting in the corner. Staring at the wall. Not moving. Not answering. Until now, he won't tell us what he saw up there.",
+    "voice": "We moved into a new apartment last June. The neighbor said not to worry about the noise upstairs. Nobody lives on the third floor. First week, quiet. Second week, we heard footsteps. Every midnight. Mark decided to go up. Ten minutes, he said. We found him sitting in the corner. Staring at the wall. Not moving. Not answering. Until now, he won't tell us what he saw up there.",
+    "caption": "He went up for ten minutes. He never came back the same. 👻",
     "hashtags": "#HorrorPH #TrueStoryPH #GabiNgMulto #PinoyHorror #SweetyStoryLab #CreepyPH #ParanormalPH",
-    "image_prompt": "dark abandoned apartment building hallway at night, eerie fog, single flickering light, no people, cinematic horror atmosphere",
-    "voice_text": "Lumipat kami sa bagong apartment noong Hunyo. Sabi ng kapitbahay, huwag kaming mag-alala sa ingay sa itaas. Walang nakatira sa ikatlong palapag. Unang linggo, tahimik. Ikalawang linggo, nagsimula kaming marinig ang mga yapak. Tuwing hatinggabi. Isang gabi, nagdesisyon si Mark na umakyat. Sampung minuto lang daw siya. Hindi na siya bumalik. Nandoon pa rin siya. Nakaupo sa sulok. Nakatingin sa dingding. Hindi sumasagot. Hanggang ngayon, hindi namin alam kung sino ang nakausap niya doon."
+    "image_prompt": "dark abandoned apartment building hallway at night, eerie fog, single flickering light, no people, cinematic horror atmosphere"
 }
 
 # ============================================================
@@ -83,7 +81,7 @@ FALLBACK = {
 # ============================================================
 def generate_story():
     theme = random.choice(HORROR_THEMES)
-    print(f"🎃 Generating horror story about: {theme}")
+    print(f"Generating horror story about: {theme}")
 
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -97,32 +95,33 @@ def generate_story():
                 "role": "system",
                 "content": (
                     "You are a Filipino horror story writer for SweetyStoryLab Facebook Reels. "
-                    "Write in Taglish — natural Filipino-English mix. "
-                    "Stories must be short, punchy, suspenseful. "
-                    "Each sentence is maximum 10 words. Short sentences create fear. "
-                    "No gore. Psychological horror only. Always end with an unanswered mystery."
+                    "Write stories in ENGLISH ONLY — clear, natural, conversational English. "
+                    "Short punchy sentences. Maximum 10 words per sentence. "
+                    "No gore. Psychological horror only. "
+                    "Sound like a true story being told by a friend. "
+                    "Always end with an unanswered mystery or twist."
                 )
             },
             {
                 "role": "user",
-                "content": f"""Write a short Filipino horror story about: {theme}
+                "content": f"""Write a short English horror story inspired by this Filipino theme: {theme}
 
 RULES:
-- Total story: 80-120 words only
-- Each sentence: maximum 10 words
-- Taglish (mix Filipino + English naturally)  
+- English only (no Tagalog words)
+- Total story: 80-100 words only
+- Max 10 words per sentence
 - Hook in first sentence
 - Build tension slowly
-- End with unanswered mystery or twist
-- Sound like a true story from a friend
+- End with unanswered mystery
+- Sound like a true personal story
 
 Output Format (exactly these labels):
 Title: (short mysterious title, max 5 words)
-Story: (the full story, 80-120 words)
-Voice: (same story but cleaner for text-to-speech, remove punctuation drama, natural speaking pace)
-Caption: (1 punchy English line for Facebook caption, max 15 words)
-Hashtags: (#HorrorPH #PinoyHorror #TrueStoryPH #GabiNgMulto #CreepyPH #SweetyStoryLab plus 3 more relevant)
-Image Prompt: (dark cinematic horror scene, no people, eerie Filipino setting, for AI image generation)"""
+Story: (full story 80-100 words, English only)
+Voice: (same story, clean for text-to-speech, natural pace)
+Caption: (1 punchy line for Facebook, max 15 words, add 👻)
+Hashtags: (#HorrorPH #PinoyHorror #TrueStoryPH #GabiNgMulto #CreepyPH #SweetyStoryLab plus 3 more)
+Image Prompt: (dark cinematic horror scene, no people, eerie setting, for AI image generation)"""
             }
         ],
         "temperature": 0.95,
@@ -137,17 +136,17 @@ Image Prompt: (dark cinematic horror scene, no people, eerie Filipino setting, f
     )
     response.raise_for_status()
     text = response.json()["choices"][0]["message"]["content"].strip()
-    print(f"✅ Groq response received")
+    print(f"Groq response received")
     return parse_story(text)
 
 def parse_story(text):
     result = {
-        "title": "Kwentong Gabi",
+        "title": "Night Terror",
         "story": "",
         "voice": "",
-        "caption": "Huwag basahin ito sa madilim. 👻",
+        "caption": "Don't read this alone. 👻",
         "hashtags": "#HorrorPH #PinoyHorror #TrueStoryPH #GabiNgMulto #SweetyStoryLab",
-        "image_prompt": "dark eerie Filipino province abandoned house night fog cinematic horror"
+        "image_prompt": "dark eerie abandoned house night fog cinematic horror no people"
     }
 
     text = text.replace("**", "").replace("*", "")
@@ -177,14 +176,13 @@ def parse_story(text):
             result["image_prompt"] = line.replace("Image Prompt:", "").strip()
             current_key = "image"
         else:
-            if current_key == "story" and result["story"]:
+            if current_key == "story":
                 result["story"] += " " + line
-            elif current_key == "voice" and result["voice"]:
+            elif current_key == "voice":
                 result["voice"] += " " + line
-            elif current_key == "image" and result["image_prompt"]:
+            elif current_key == "image":
                 result["image_prompt"] += " " + line
 
-    # Use story as voice if voice is empty
     if not result["voice"]:
         result["voice"] = result["story"]
 
@@ -194,183 +192,187 @@ def get_content():
     try:
         content = generate_story()
         if content["story"]:
-            print(f"✅ Story: {content['title']}")
+            print(f"Story generated: {content['title']}")
             return content
     except Exception as e:
-        print(f"⚠️ Groq failed: {e}")
-    print("⚠️ Using fallback content...")
+        print(f"Groq failed: {e}")
+    print("Using fallback content...")
     return FALLBACK
 
 # ============================================================
-# STEP 2: GENERATE VOICE WITH PIPER TTS
+# STEP 2: GENERATE VOICE WITH EDGE TTS
 # ============================================================
-# Piper is a free, fast, offline text-to-speech engine.
-# Runs completely locally inside GitHub Actions — no API needed.
-# We download the binary + English voice model on first run.
+# Edge TTS uses Microsoft's neural voices — sounds very natural.
+# Completely free, no API key needed.
+# Voice: en-US-AriaNeural (warm, clear, great for storytelling)
 # ============================================================
-def setup_piper():
-    if os.path.exists(PIPER_BIN):
-        print("✅ Piper already installed")
-        return
-
-    print("📥 Installing Piper TTS...")
-    piper_dir = f"{WORK_DIR}/piper"
-    os.makedirs(piper_dir, exist_ok=True)
-
-    # Download Piper binary
-    piper_url = "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz"
-    r = requests.get(piper_url, timeout=120)
-    with open(f"{WORK_DIR}/piper.tar.gz", "wb") as f:
-        f.write(r.content)
-
-    subprocess.run(["tar", "-xzf", f"{WORK_DIR}/piper.tar.gz", "-C", WORK_DIR], check=True)
-    subprocess.run(["chmod", "+x", PIPER_BIN], check=True)
-    print("✅ Piper binary installed")
-
-    # Download English voice model (lessac-medium — clear, natural voice)
-    model_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
-    config_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
-
-    print("📥 Downloading voice model...")
-    for url, path in [(model_url, PIPER_MODEL), (config_url, f"{PIPER_MODEL}.json")]:
-        r = requests.get(url, timeout=180)
-        with open(path, "wb") as f:
-            f.write(r.content)
-
-    print("✅ Piper voice model ready")
-
 def generate_voice(text):
-    print("🎙️ Generating voice with Piper TTS...")
-    setup_piper()
+    print("Generating voice with Edge TTS...")
 
-    # Clean text for TTS — remove hashtags and emojis
-    clean_text = text.replace("#", "").replace("👻", "").replace("...", ". ").strip()
+    # Install edge-tts if not available
+    subprocess.run(
+        ["pip", "install", "edge-tts", "-q"],
+        check=True, capture_output=True
+    )
 
-    # Pipe text into Piper, output WAV file
+    # Clean text for TTS
+    clean_text = (text
+        .replace("#", "")
+        .replace("👻", "")
+        .replace("...", ". ")
+        .strip()
+    )
+
+    # Use edge-tts CLI to generate voice
+    # en-US-AriaNeural = warm natural female voice, great for horror storytelling
     result = subprocess.run(
-        [PIPER_BIN, "--model", PIPER_MODEL, "--output_file", VOICE_FILE],
-        input=clean_text.encode("utf-8"),
+        [
+            "edge-tts",
+            "--voice", "en-US-AriaNeural",
+            "--rate", "-10%",        # Slightly slower = more dramatic
+            "--pitch", "-5Hz",       # Slightly lower pitch = creepier
+            "--text", clean_text,
+            "--write-media", VOICE_FILE
+        ],
         capture_output=True,
+        text=True,
         timeout=60
     )
 
     if result.returncode != 0:
-        raise Exception(f"Piper failed: {result.stderr.decode()}")
+        raise Exception(f"Edge TTS failed: {result.stderr}")
 
-    print(f"✅ Voice generated: {VOICE_FILE}")
+    print(f"Voice generated: {VOICE_FILE}")
     return VOICE_FILE
 
 # ============================================================
 # STEP 3: GENERATE HORROR IMAGE WITH POLLINATIONS.AI
 # ============================================================
 def generate_image(image_prompt):
-    print("🖼️ Generating horror image...")
+    print("Generating horror image...")
 
     full_prompt = (
         f"{image_prompt}, "
-        "dark horror atmosphere, cinematic, eerie Filipino setting, "
+        "dark horror atmosphere, cinematic, eerie, "
         "dramatic shadows, foggy night, abandoned, photorealistic, "
-        "high quality, no text, no watermark, no people"
+        "high quality, no text, no watermark, no people faces"
     )
 
     encoded = requests.utils.quote(full_prompt)
     seed = random.randint(1, 99999)
     url = f"https://image.pollinations.ai/prompt/{encoded}?width=1080&height=1080&nologo=true&seed={seed}"
 
-    print(f"Calling Pollinations...")
+    print("Calling Pollinations...")
     response = requests.get(url, timeout=90)
     response.raise_for_status()
 
     with open(IMAGE_FILE, "wb") as f:
         f.write(response.content)
 
-    print(f"✅ Image saved: {IMAGE_FILE}")
+    print(f"Image saved!")
     return IMAGE_FILE
 
 # ============================================================
 # STEP 4: BUILD VIDEO WITH FFMPEG
 # ============================================================
-# FFmpeg combines image + voice into a vertical 1080x1920 Reel.
-# Process:
-#   1. Resize/blur image to fill 1080x1920 background
-#   2. Overlay original image centered
-#   3. Add dark vignette for horror mood
-#   4. Add story text as burned-in subtitles
-#   5. Add voice audio track
-#   6. Output as MP4 (H.264) — Facebook Reels format
-# ============================================================
 def build_video(image_path, voice_path, story_text, title):
-    print("🎬 Building video with FFmpeg...")
+    print("Building video with FFmpeg...")
 
-    # Get audio duration to set video length
+    # Get audio duration
     probe = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json",
-         "-show_streams", voice_path],
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", voice_path],
         capture_output=True, text=True
     )
     probe_data = json.loads(probe.stdout)
     duration = float(probe_data["streams"][0]["duration"])
     print(f"Audio duration: {duration:.1f}s")
 
-    # Prepare background: blur + darken the horror image to fill 1080x1920
+    # ---- Build background frame with Pillow ----
     img = Image.open(image_path).convert("RGB")
-    # Blur for background
-    bg = img.resize((1080, 1080)).filter(ImageFilter.GaussianBlur(radius=15))
-    # Create 1080x1920 canvas
-    canvas = Image.new("RGB", (1080, 1920), (0, 0, 0))
-    # Stretch blurred image to fill height
-    bg_stretched = bg.resize((1080, 1920))
-    # Darken it
+
+    # 1. Blurred dark background fills full 1080x1920
+    bg = img.resize((1080, 1920), Image.LANCZOS)
+    bg = bg.filter(ImageFilter.GaussianBlur(radius=20))
     darkener = Image.new("RGB", (1080, 1920), (0, 0, 0))
-    bg_final = Image.blend(bg_stretched, darkener, 0.5)
-    canvas.paste(bg_final, (0, 0))
-    # Paste original image centered (square, middle of frame)
-    img_centered = img.resize((1080, 1080))
-    canvas.paste(img_centered, (0, 420))  # Centered vertically
+    bg = Image.blend(bg, darkener, 0.55)
 
-    # Add title text at top
-    draw = ImageDraw.Draw(canvas)
-    try:
-        title_font = ImageFont.truetype("/tmp/Lora-Italic.ttf", 52)
-        story_font = ImageFont.truetype("/tmp/Lora-Italic.ttf", 38)
-        brand_font = ImageFont.truetype("/tmp/Lora-Italic.ttf", 28)
-    except:
-        title_font = ImageFont.load_default()
-        story_font = ImageFont.load_default()
-        brand_font = ImageFont.load_default()
+    # 2. Original image centered in middle (1080x1080)
+    img_main = img.resize((1080, 1080), Image.LANCZOS)
 
-    # Dark overlay on top and bottom areas
-    top_overlay = Image.new("RGBA", (1080, 420), (0, 0, 0, 180))
+    # 3. Dark gradient overlay on image for text readability
+    gradient = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
+    grad_draw = ImageDraw.Draw(gradient)
+    for i in range(400):
+        alpha = int((i / 400) * 200)
+        grad_draw.rectangle([0, 680 + i, 1080, 681 + i], fill=(0, 0, 0, alpha))
+    img_main_rgba = img_main.convert("RGBA")
+    img_main_rgba = Image.alpha_composite(img_main_rgba, gradient)
+    img_main = img_main_rgba.convert("RGB")
+
+    # 4. Paste image into background centered vertically
+    canvas = bg.copy()
+    y_offset = (1920 - 1080) // 2  # = 420
+    canvas.paste(img_main, (0, y_offset))
+
+    # 5. Dark overlay top and bottom for text areas
     canvas_rgba = canvas.convert("RGBA")
-    canvas_rgba.paste(top_overlay, (0, 0), top_overlay)
-    bottom_overlay = Image.new("RGBA", (1080, 420), (0, 0, 0, 200))
-    canvas_rgba.paste(bottom_overlay, (0, 1500), bottom_overlay)
+    top_bar = Image.new("RGBA", (1080, 400), (0, 0, 0, 210))
+    canvas_rgba.paste(top_bar, (0, 0), top_bar)
+    bottom_bar = Image.new("RGBA", (1080, 440), (0, 0, 0, 220))
+    canvas_rgba.paste(bottom_bar, (0, 1480), bottom_bar)
     canvas = canvas_rgba.convert("RGB")
+
     draw = ImageDraw.Draw(canvas)
 
-    # Title
-    draw.text((540, 160), title, font=title_font, fill=(255, 255, 255, 255), anchor="mm")
+    # ---- Load fonts ----
+    try:
+        font_title = ImageFont.truetype("/tmp/Lora-Italic.ttf", 72)
+        font_story = ImageFont.truetype("/tmp/Lora-Italic.ttf", 54)  # BIGGER TEXT
+        font_brand = ImageFont.truetype("/tmp/Lora-Italic.ttf", 32)
+        font_swipe = ImageFont.truetype("/tmp/Lora-Italic.ttf", 36)
+    except:
+        font_title = ImageFont.load_default()
+        font_story = ImageFont.load_default()
+        font_brand = ImageFont.load_default()
+        font_swipe = ImageFont.load_default()
 
-    # Brand
-    draw.text((540, 1870), "SweetyStoryLab", font=brand_font, fill=(255, 255, 255, 180), anchor="mm")
+    # ---- Draw title at top ----
+    # Shadow
+    draw.text((542, 122), title, font=font_title, fill=(0, 0, 0, 200), anchor="mm")
+    # Main
+    draw.text((540, 120), title, font=font_title, fill=(255, 255, 255, 255), anchor="mm")
 
-    # Story text wrapped at bottom
-    wrapped = textwrap.fill(story_text[:200] + "...", width=38)
-    draw.multiline_text((540, 1600), wrapped, font=story_font,
-                        fill=(255, 255, 255, 230), anchor="mm", align="center", spacing=12)
+    # Decorative line under title
+    draw.rectangle([340, 165, 740, 168], fill=(255, 255, 255, 150))
+
+    # ---- Draw story text at bottom ----
+    # Word wrap at ~28 chars per line for BIG readable text
+    wrapped_lines = textwrap.wrap(story_text, width=28)
+    max_lines = 6  # Show max 6 lines
+    display_lines = wrapped_lines[:max_lines]
+    if len(wrapped_lines) > max_lines:
+        display_lines[-1] = display_lines[-1] + "..."
+
+    line_height = 68
+    total_text_height = len(display_lines) * line_height
+    start_y = 1510
+
+    for i, line in enumerate(display_lines):
+        y = start_y + (i * line_height)
+        # Shadow
+        draw.text((542, y + 2), line, font=font_story, fill=(0, 0, 0, 200), anchor="mm")
+        # Main text
+        draw.text((540, y), line, font=font_story, fill=(255, 255, 255, 255), anchor="mm")
+
+    # ---- Brand name ----
+    draw.text((542, 1882), "SweetyStoryLab", font=font_brand, fill=(0, 0, 0, 180), anchor="mm")
+    draw.text((540, 1880), "SweetyStoryLab", font=font_brand, fill=(255, 255, 255, 180), anchor="mm")
 
     # Save background frame
     canvas.save(BG_FILE, "JPEG", quality=95)
-    print("✅ Background frame built")
+    print("Background frame built!")
 
-    # FFmpeg: combine image + audio into MP4
-    # -loop 1: use static image as video source
-    # -i: input image and audio
-    # -c:v libx264: H.264 video codec (Facebook compatible)
-    # -tune stillimage: optimized for static image video
-    # -c:a aac: AAC audio (Facebook compatible)
-    # -pix_fmt yuv420p: required for Facebook compatibility
-    # -shortest: end video when audio ends
+    # ---- FFmpeg: image + audio → MP4 ----
     ffmpeg_cmd = [
         "ffmpeg", "-y",
         "-loop", "1",
@@ -391,30 +393,18 @@ def build_video(image_path, voice_path, story_text, title):
     if result.returncode != 0:
         raise Exception(f"FFmpeg failed: {result.stderr}")
 
-    file_size = os.path.getsize(VIDEO_FILE)
-    print(f"✅ Video built: {VIDEO_FILE} ({file_size/1024/1024:.1f}MB)")
+    size_mb = os.path.getsize(VIDEO_FILE) / 1024 / 1024
+    print(f"Video built! ({size_mb:.1f}MB)")
     return VIDEO_FILE
 
 # ============================================================
 # STEP 5: UPLOAD TO FACEBOOK AS REEL
 # ============================================================
-# Facebook Reels upload is a 3-step process:
-#
-# Step A — Initialize upload session:
-#   Tell Facebook the file size, get an upload URL + video_id
-#
-# Step B — Upload video binary:
-#   Send the actual video file to the upload URL
-#
-# Step C — Publish as Reel:
-#   Send video_id + caption to publish endpoint
-# ============================================================
 def upload_reel(video_path, caption):
-    print("📤 Uploading Reel to Facebook...")
+    print("Uploading Reel to Facebook...")
     file_size = os.path.getsize(video_path)
 
-    # Step A: Initialize upload session
-    print("Initializing upload session...")
+    # Step A: Initialize upload
     init_res = requests.post(
         f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}/video_reels",
         data={
@@ -422,10 +412,10 @@ def upload_reel(video_path, caption):
             "access_token": FB_ACCESS_TOKEN
         }
     )
-    print(f"Init response: {init_res.status_code} - {init_res.text}")
+    print(f"Init: {init_res.status_code} - {init_res.text}")
     init_res.raise_for_status()
     video_id = init_res.json()["video_id"]
-    print(f"✅ Upload session started. Video ID: {video_id}")
+    print(f"Video ID: {video_id}")
 
     # Step B: Upload video binary
     print("Uploading video file...")
@@ -443,13 +433,12 @@ def upload_reel(video_path, caption):
         data=video_data,
         timeout=300
     )
-    print(f"Upload response: {upload_res.status_code} - {upload_res.text}")
+    print(f"Upload: {upload_res.status_code} - {upload_res.text}")
     upload_res.raise_for_status()
-    print("✅ Video uploaded!")
 
-    time.sleep(5)
+    time.sleep(8)
 
-    # Step C: Publish as Reel
+    # Step C: Publish
     print("Publishing Reel...")
     pub_res = requests.post(
         f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}/video_reels",
@@ -462,13 +451,13 @@ def upload_reel(video_path, caption):
             "access_token": FB_ACCESS_TOKEN
         }
     )
-    print(f"Publish response: {pub_res.status_code} - {pub_res.text}")
+    print(f"Publish: {pub_res.status_code} - {pub_res.text}")
     pub_res.raise_for_status()
-    print(f"🎉 Reel published!")
+    print(f"Reel published!")
     return video_id
 
 # ============================================================
-# STEP 6: LOG RESULT TO SQLITE
+# STEP 6: LOG TO SQLITE
 # ============================================================
 def log_result(title, video_id, status, error=None):
     conn = sqlite3.connect(DB_FILE)
@@ -489,13 +478,13 @@ def log_result(title, video_id, status, error=None):
     )
     conn.commit()
     conn.close()
-    print(f"📝 Logged: {status} — {title}")
+    print(f"Logged: {status} — {title}")
 
 # ============================================================
 # MAIN
 # ============================================================
 def main():
-    print(f"\n👻 SweetyStoryLab Horror Bot starting — {datetime.now()}")
+    print(f"\nSweetyStoryLab Horror Bot — {datetime.now()}")
 
     video_id = None
     content = None
@@ -509,8 +498,8 @@ def main():
         caption = f"{content['caption']}\n\n{content['hashtags']}"
         image_prompt = content["image_prompt"]
 
-        print(f"\n📖 Title: {title}")
-        print(f"📝 Story: {story[:80]}...")
+        print(f"\nTitle: {title}")
+        print(f"Story: {story[:80]}...")
 
         # Step 2: Generate voice
         voice_path = generate_voice(voice_text)
@@ -519,8 +508,7 @@ def main():
         try:
             image_path = generate_image(image_prompt)
         except Exception as e:
-            print(f"⚠️ Pollinations failed: {e} — using dark fallback")
-            # Fallback: solid dark image
+            print(f"Pollinations failed: {e} — using dark fallback")
             img = Image.new("RGB", (1080, 1080), (5, 5, 10))
             img.save(IMAGE_FILE, "JPEG")
             image_path = IMAGE_FILE
@@ -531,12 +519,12 @@ def main():
         # Step 5: Upload Reel
         video_id = upload_reel(video_path, caption)
 
-        # Step 6: Log success
+        # Step 6: Log
         log_result(title, video_id, "success")
-        print(f"\n🎉 Done! Reel posted: {title}")
+        print(f"\nDone! Reel posted: {title}")
 
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\nError: {e}")
         log_result(
             content["title"] if content else "unknown",
             video_id,
