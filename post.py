@@ -229,8 +229,8 @@ def generate_voice(text):
         [
             "edge-tts",
             "--voice", "en-US-AriaNeural",
-            "--rate", "-10%",        # Slightly slower = more dramatic
-            "--pitch", "-5Hz",       # Slightly lower pitch = creepier
+            "--rate=-10%",           # Slightly slower = more dramatic
+            "--pitch=-5Hz",          # Slightly lower pitch = creepier
             "--text", clean_text,
             "--write-media", VOICE_FILE
         ],
