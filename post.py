@@ -36,23 +36,10 @@ os.makedirs(WORK_DIR, exist_ok=True)
 # ============================================================
 # HORROR THEMES
 # ============================================================
-HORROR_THEMES = [
-    "aswang sa probinsya ng Capiz",
-    "white lady sa NLEX highway",
-    "multo sa lumang ospital sa Maynila",
-    "tikbalang sa bundok ng Rizal",
-    "manananggal sa probinsya",
-    "haunted dormitory sa Maynila",
-    "mysterious Grab passenger late at night",
-    "abandoned house sa subdivision",
-    "night shift engineer who saw something",
-    "missing child at the palengke",
-    "hotel room that should not be entered",
-    "SLEX driver with an unexplained experience",
-    "woman in white in the middle of the rice field",
-    "child who sees things others cannot",
-    "old woman in the province with a dark secret",
-]
+# No static list needed — Groq inventsi a fresh unique theme
+# every single run based on Filipino horror culture.
+# This means zero repetition, infinite variety, always fresh.
+# ============================================================
 
 # ============================================================
 # FALLBACK
@@ -81,8 +68,8 @@ FALLBACK = {
 # STEP 1: GENERATE STORY WITH GROQ
 # ============================================================
 def generate_story():
-    theme = random.choice(HORROR_THEMES)
-    print(f"Generating story: {theme}")
+    # No theme passed in — Groq picks its own fresh theme every time
+    print("Generating fresh horror theme and story with Groq...")
 
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
@@ -92,6 +79,10 @@ def generate_story():
                 "role": "system",
                 "content": (
                     "You are a Filipino horror story writer for Facebook Reels. "
+                    "You have deep knowledge of Filipino horror folklore: aswang, manananggal, "
+                    "tikbalang, kapre, white lady, multo, engkanto, sigbin, tiyanak, and more. "
+                    "You know Filipino settings: probinsya, bukid, dagat, ospital, dormitoryo, "
+                    "highway, palengke, subdivision, bundok, simbahan, sementeryo. "
                     "Write in clear natural English. Short punchy sentences. Max 10 words per sentence. "
                     "No gore. Psychological fear only. True story style. "
                     "Always end with an unanswered mystery."
@@ -99,23 +90,28 @@ def generate_story():
             },
             {
                 "role": "user",
-                "content": f"""Write a 3-scene Filipino horror story about: {theme}
+                "content": """First, invent a unique and original Filipino horror theme.
+Be creative — mix creatures, settings, and situations in unexpected ways.
+Avoid repeating common themes. Think of something fresh and specific.
+
+Then write a complete 3-scene horror story based on your invented theme.
 
 Each scene is ~25-30 words. Short sentences. Build fear slowly.
 Scene 1 = hook and setup
-Scene 2 = tension and discovery  
+Scene 2 = tension and discovery
 Scene 3 = twist or unanswered mystery
 
 Output ONLY this exact format, nothing else:
-Title: (max 5 words)
+Theme: (your invented horror theme, 1 line)
+Title: (max 5 words, mysterious)
 Caption: (1 punchy Facebook line, max 15 words, add 👻)
 Hashtags: (#HorrorPH #PinoyHorror #TrueStoryPH #GabiNgMulto #CreepyPH #SweetyStoryLab #ParanormalPH #FilipinoPH)
 Scene1Narration: (25-30 words, English, short sentences)
-Scene1Image: (cinematic dark horror scene description, no people, no text, eerie setting)
+Scene1Image: (cinematic dark horror scene description, no people, no text, eerie Filipino setting)
 Scene2Narration: (25-30 words, English, short sentences)
 Scene2Image: (cinematic dark horror scene description, no people, no text)
 Scene3Narration: (25-30 words, English, short sentences)
-Scene3Image: (cinematic dark horror scene description, no people, no text, dramatic)"""
+Scene3Image: (cinematic dark horror scene description, no people, no text, dramatic ending)"""
             }
         ],
         "temperature": 0.95,
@@ -140,7 +136,10 @@ def parse_story(text):
     for line in text.strip().split("\n"):
         line = line.strip()
         if not line: continue
-        if line.startswith("Title:"):
+        if line.startswith("Theme:"):
+            # Log the AI-invented theme for transparency
+            print(f"AI invented theme: {line.replace('Theme:', '').strip()}")
+        elif line.startswith("Title:"):
             result["title"] = line.replace("Title:", "").strip().strip('"')
         elif line.startswith("Caption:"):
             result["caption"] = line.replace("Caption:", "").strip().strip('"')
