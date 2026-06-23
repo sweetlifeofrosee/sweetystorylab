@@ -18,9 +18,11 @@ import io
 # ============================================================
 # SECRETS
 # ============================================================
-FB_ACCESS_TOKEN = os.environ["FB_PAGE_ACCESS_TOKEN"]
-FB_PAGE_ID      = os.environ["FB_PAGE_ID"]
-GROQ_API_KEY    = os.environ["GROQ_API_KEY"]
+FB_ACCESS_TOKEN    = os.environ["FB_PAGE_ACCESS_TOKEN"]
+FB_PAGE_ID         = os.environ["FB_PAGE_ID"]
+GROQ_API_KEY       = os.environ["GROQ_API_KEY"]
+# ElevenLabs is optional — falls back to Edge TTS if missing or quota exceeded
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 
 # ============================================================
 # PATHS
@@ -83,7 +85,9 @@ def generate_story():
                     "tikbalang, kapre, white lady, multo, engkanto, sigbin, tiyanak, and more. "
                     "You know Filipino settings: probinsya, bukid, dagat, ospital, dormitoryo, "
                     "highway, palengke, subdivision, bundok, simbahan, sementeryo. "
-                    "Write in clear natural English. Short punchy sentences. Max 10 words per sentence. "
+                    "IMPORTANT: Always write in ENGLISH ONLY. Never use Tagalog or Filipino words "
+                    "in the story, title, caption, or narration. English only at all times. "
+                    "Short punchy sentences. Max 10 words per sentence. "
                     "No gore. Psychological fear only. True story style. "
                     "Always end with an unanswered mystery."
                 )
@@ -101,16 +105,19 @@ Scene 1 = hook and setup
 Scene 2 = tension and discovery
 Scene 3 = twist or unanswered mystery
 
+CRITICAL RULE: Everything must be in ENGLISH ONLY.
+No Tagalog. No Filipino words. English at all times.
+
 Output ONLY this exact format, nothing else:
-Theme: (your invented horror theme, 1 line)
-Title: (max 5 words, mysterious)
-Caption: (1 punchy Facebook line, max 15 words, add 👻)
+Theme: (your invented horror theme, 1 line, English only)
+Title: (max 5 words, mysterious, English only)
+Caption: (1 punchy Facebook line, max 15 words, add 👻, English only)
 Hashtags: (#HorrorPH #PinoyHorror #TrueStoryPH #GabiNgMulto #CreepyPH #SweetyStoryLab #ParanormalPH #FilipinoPH)
-Scene1Narration: (25-30 words, English, short sentences)
+Scene1Narration: (25-30 words, ENGLISH ONLY, short sentences)
 Scene1Image: (cinematic dark horror scene description, no people, no text, eerie Filipino setting)
-Scene2Narration: (25-30 words, English, short sentences)
+Scene2Narration: (25-30 words, ENGLISH ONLY, short sentences)
 Scene2Image: (cinematic dark horror scene description, no people, no text)
-Scene3Narration: (25-30 words, English, short sentences)
+Scene3Narration: (25-30 words, ENGLISH ONLY, short sentences)
 Scene3Image: (cinematic dark horror scene description, no people, no text, dramatic ending)"""
             }
         ],
@@ -199,29 +206,91 @@ def generate_image(prompt, index):
     return path
 
 # ============================================================
-# STEP 3: GENERATE VOICE + SUBTITLES WITH EDGE TTS
+# STEP 3: GENERATE VOICE + SUBTITLES
 # ============================================================
-# Edge TTS uses Microsoft's free neural voices — sounds natural.
-# No API key needed. Runs as a command line tool.
-# We use en-US-GuyNeural: deep, clear, dramatic male voice.
-# --rate=-10% slows it down slightly for suspenseful pacing.
-# Edge TTS also outputs a .vtt subtitle file automatically —
-# each word is timestamped so subtitles sync perfectly to voice.
-# We convert .vtt to .srt format which FFmpeg understands.
+# We use a hybrid approach for best quality + zero cost:
+#
+# PRIMARY — ElevenLabs (emotional, dramatic, horror-perfect)
+#   - Uses "Daniel" voice: deep, storytelling, expressive
+#   - Free tier: 10,000 chars/month (resets monthly)
+#   - Generates voice.mp3 directly
+#   - Falls back to Edge TTS if quota exceeded or key missing
+#
+# FALLBACK — Edge TTS (Microsoft neural voices, always free)
+#   - Uses en-US-GuyNeural: deep, clear, dramatic male voice
+#   - No quota, no API key, runs forever
+#   - Also generates .vtt subtitle file for synced captions
+#
+# Both paths produce voice.mp3 + voice.srt for FFmpeg.
 # ============================================================
-def generate_voice(scenes):
-    print("Generating voice with Edge TTS...")
 
-    # Combine all 3 scene narrations into one continuous script
-    full_narration = " ".join(s["narration"] for s in scenes)
-    clean = full_narration.replace("#", "").replace("👻", "").replace("...", ". ").strip()
+def generate_voice_elevenlabs(text):
+    """
+    Generate voice using ElevenLabs API.
+    Uses 'Daniel' voice — deep, expressive, perfect for horror.
+    Returns True if successful, False if quota exceeded or error.
+    """
+    print("Trying ElevenLabs voice (emotional)...")
+
+    # ElevenLabs voice IDs — Daniel is deep and dramatic
+    # Other good horror voices: Adam (onwK4e9ZLuTAKqWW03F2), Antoni (ErXwobaYiN019PkySvjV)
+    VOICE_ID = "onwK4e9ZLuTAKqWW03F2"  # Adam — deep, warm, expressive
+
+    headers = {
+        "xi-api-key": ELEVENLABS_API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "text": text,
+        "model_id": "eleven_monolingual_v1",
+        "voice_settings": {
+            "stability": 0.4,        # Lower = more expressive/emotional
+            "similarity_boost": 0.8, # Higher = stays true to voice character
+            "style": 0.5,            # Style exaggeration for drama
+            "use_speaker_boost": True
+        }
+    }
+
+    try:
+        res = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+
+        # 429 = quota exceeded, fall back to Edge TTS
+        if res.status_code == 429:
+            print("⚠️ ElevenLabs quota exceeded — falling back to Edge TTS")
+            return False
+
+        res.raise_for_status()
+
+        # Save the audio file
+        with open(VOICE_FILE, "wb") as f:
+            f.write(res.content)
+
+        print("✅ ElevenLabs voice generated!")
+        return True
+
+    except Exception as e:
+        print(f"⚠️ ElevenLabs failed: {e} — falling back to Edge TTS")
+        return False
+
+def generate_voice_edgetts(text):
+    """
+    Generate voice using Edge TTS (free, no quota).
+    Also generates .vtt subtitle file for synced captions.
+    """
+    print("Generating voice with Edge TTS (GuyNeural)...")
 
     result = subprocess.run(
         [
             "edge-tts",
             "--voice", "en-US-GuyNeural",
             "--rate=-10%",
-            "--text", clean,
+            "--text", text,
             "--write-media", VOICE_FILE,
             "--write-subtitles", VTT_FILE
         ],
@@ -230,9 +299,80 @@ def generate_voice(scenes):
     if result.returncode != 0:
         raise Exception(f"Edge TTS failed: {result.stderr}")
 
-    # Convert VTT to SRT for FFmpeg
-    vtt_to_srt(VTT_FILE, SRT_FILE)
-    print("Voice + subtitles generated!")
+    print("✅ Edge TTS voice generated!")
+
+def generate_srt_from_voice(text):
+    """
+    Generate SRT subtitles by estimating word timing from audio duration.
+    Used when ElevenLabs generates the voice (no .vtt file available).
+    We estimate timing based on average speaking pace (~2.5 words/second).
+    """
+    # Get actual audio duration
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", VOICE_FILE],
+        capture_output=True, text=True
+    )
+    duration = float(json.loads(probe.stdout)["streams"][0]["duration"])
+
+    words = text.split()
+    total_words = len(words)
+    # Time per word based on actual audio length
+    time_per_word = duration / total_words if total_words > 0 else 0.4
+
+    srt_blocks = []
+    counter = 1
+    chunk_size = 6  # Words per subtitle line
+
+    for i in range(0, total_words, chunk_size):
+        chunk = words[i:i + chunk_size]
+        start_time = i * time_per_word
+        end_time = min((i + chunk_size) * time_per_word, duration)
+
+        # Format as SRT timestamp 00:00:00,000
+        def fmt(t):
+            h = int(t // 3600)
+            m = int((t % 3600) // 60)
+            s = int(t % 60)
+            ms = int((t % 1) * 1000)
+            return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+        srt_blocks.append(f"{counter}
+{fmt(start_time)} --> {fmt(end_time)}
+{' '.join(chunk)}")
+        counter += 1
+
+    with open(SRT_FILE, "w", encoding="utf-8") as f:
+        f.write("
+
+".join(srt_blocks))
+    print(f"✅ SRT generated from timing estimate ({counter-1} blocks)")
+
+def generate_voice(scenes):
+    """
+    Main voice generation function.
+    Tries ElevenLabs first, falls back to Edge TTS.
+    Always produces voice.mp3 + voice.srt for FFmpeg.
+    """
+    # Combine all 3 scene narrations
+    full_narration = " ".join(s["narration"] for s in scenes)
+    clean = full_narration.replace("#", "").replace("👻", "").replace("...", ". ").strip()
+
+    used_elevenlabs = False
+
+    # Try ElevenLabs if API key is available
+    if ELEVENLABS_API_KEY:
+        used_elevenlabs = generate_voice_elevenlabs(clean)
+
+    if used_elevenlabs:
+        # ElevenLabs doesn't give us a subtitle file
+        # so we estimate subtitle timing from audio duration
+        generate_srt_from_voice(clean)
+    else:
+        # Edge TTS — free fallback, generates .vtt which we convert to .srt
+        generate_voice_edgetts(clean)
+        vtt_to_srt(VTT_FILE, SRT_FILE)
+
+    print(f"Voice ready! ({'ElevenLabs' if used_elevenlabs else 'Edge TTS'})")
     return VOICE_FILE, SRT_FILE
 
 def vtt_to_srt(vtt_path, srt_path):
