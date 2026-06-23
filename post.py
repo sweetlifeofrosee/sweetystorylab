@@ -206,8 +206,7 @@ def generate_voice(scenes):
         [
             "edge-tts",
             "--voice", "en-US-DavisNeural",
-            "--rate=-10%",
-            "--pitch=-5Hz",
+            "--rate=-15%",
             "--text", clean,
             "--write-media", VOICE_FILE,
             "--write-subtitles", VTT_FILE
