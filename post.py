@@ -81,15 +81,16 @@ def generate_story():
                 "role": "system",
                 "content": (
                     "You are a Filipino horror story writer for Facebook Reels. "
-                    "You have deep knowledge of Filipino horror folklore: aswang, manananggal, "
-                    "tikbalang, kapre, white lady, multo, engkanto, sigbin, tiyanak, and more. "
-                    "You know Filipino settings: probinsya, bukid, dagat, ospital, dormitoryo, "
-                    "highway, palengke, subdivision, bundok, simbahan, sementeryo. "
-                    "IMPORTANT: Always write in ENGLISH ONLY. Never use Tagalog or Filipino words "
-                    "in the story, title, caption, or narration. English only at all times. "
+                    "You are a master horror storyteller with knowledge of horror from around the world: "
+                    "Filipino folklore (aswang, manananggal, tikbalang, white lady, multo, engkanto), "
+                    "urban legends, haunted places, paranormal encounters, ghost stories, "
+                    "creepy mysteries, supernatural events, psychological horror, and unexplained phenomena. "
+                    "Stories can be set anywhere — provinces, cities, hospitals, highways, hotels, forests, "
+                    "schools, old houses, beaches, or any eerie location worldwide. "
+                    "IMPORTANT: Always write in ENGLISH ONLY. No Tagalog or Filipino words ever. "
                     "Short punchy sentences. Max 10 words per sentence. "
                     "No gore. Psychological fear only. True story style. "
-                    "Always end with an unanswered mystery."
+                    "Always end with an unanswered mystery or twist."
                 )
             },
             {
@@ -105,20 +106,30 @@ Scene 1 = hook and setup
 Scene 2 = tension and discovery
 Scene 3 = twist or unanswered mystery
 
-CRITICAL RULE: Everything must be in ENGLISH ONLY.
-No Tagalog. No Filipino words. English at all times.
+CRITICAL RULES:
+- Everything in ENGLISH ONLY. No Tagalog. No Filipino words ever.
+- Hashtags must be relevant to THIS specific story — not generic every time.
 
 Output ONLY this exact format, nothing else:
 Theme: (your invented horror theme, 1 line, English only)
 Title: (max 5 words, mysterious, English only)
 Caption: (1 punchy Facebook line, max 15 words, add 👻, English only)
-Hashtags: (#HorrorPH #PinoyHorror #TrueStoryPH #GabiNgMulto #CreepyPH #SweetyStoryLab #ParanormalPH #FilipinoPH)
+Hashtags: (15-20 hashtags relevant to THIS story. Mix broad and niche.
+  Always include: #Horror #SweetyStoryLab
+  Pick relevant ones from these categories based on story content:
+  - Broad: #ScaryStories #CreepyStories #GhostStories #Paranormal #Supernatural #Thriller #Mystery
+  - Setting: #HauntedHouse #AbandonedPlace #DarkForest #Hospital #Highway #Hotel
+  - Creature: #Ghost #Demon #Aswang #WhiteLady #UrbanLegend #FolklorHorror
+  - Style: #TrueHorror #TrueStory #NightmareFuel #Creepy #Eerie #Unexplained #DarkStories
+  - Platform: #HorrorTok #HorrorShorts #ScaryTok #StoryTime #HorrorReels
+  - Filipino: #HorrorPH #PinoyHorror #FilipinoPH (only if story has Filipino elements)
+  Return as one line of hashtags, no explanations)
 Scene1Narration: (25-30 words, ENGLISH ONLY, short sentences)
-Scene1Image: (cinematic dark horror scene description, no people, no text, eerie Filipino setting)
+Scene1Image: (cinematic dark horror scene, no people, no text, eerie atmosphere)
 Scene2Narration: (25-30 words, ENGLISH ONLY, short sentences)
-Scene2Image: (cinematic dark horror scene description, no people, no text)
+Scene2Image: (cinematic dark horror scene, no people, no text)
 Scene3Narration: (25-30 words, ENGLISH ONLY, short sentences)
-Scene3Image: (cinematic dark horror scene description, no people, no text, dramatic ending)"""
+Scene3Image: (cinematic dark horror scene, no people, no text, dramatic)"""
             }
         ],
         "temperature": 0.95,
