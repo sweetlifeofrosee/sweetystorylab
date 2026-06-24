@@ -531,14 +531,21 @@ def build_video(image_paths, voice_path, srt_path, scenes, title, question):
     # Pad voice audio with 4 seconds of silence at the end
     # This ensures the question slide (4s) plays fully before video ends
     # Without this, -shortest cuts the video when narration ends
-    subprocess.run([
+    # We use libmp3lame codec since input is mp3
+    pad_result = subprocess.run([
         "ffmpeg", "-y",
         "-i", voice_path,
-        "-af", "apad=pad_dur=4",  # Add 4 seconds silence at end
-        "-c:a", "aac",
+        "-af", "apad=pad_dur=4",
+        "-codec:a", "libmp3lame",
+        "-q:a", "2",
         padded_voice
-    ], check=True, capture_output=True)
-    print("✅ Audio padded with 4s silence for question slide")
+    ], capture_output=True)
+    if pad_result.returncode != 0:
+        # If padding fails just use original voice
+        print("⚠️ Audio padding failed — using original voice")
+        padded_voice = voice_path
+    else:
+        print("✅ Audio padded with 4s silence for question slide")
 
     # Step A: Build slideshow video from images
     subprocess.run([
