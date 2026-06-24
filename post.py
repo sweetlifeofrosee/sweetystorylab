@@ -50,6 +50,7 @@ FALLBACK = {
     "title": "The Third Floor",
     "caption": "He went up for ten minutes. He never came back the same. 👻",
     "hashtags": "#HorrorPH #TrueStoryPH #GabiNgMulto #PinoyHorror #SweetyStoryLab #CreepyPH",
+    "question": "Have you ever heard footsteps when nobody was there?",
     "scenes": [
         {
             "narration": "We moved into a new apartment last June. The neighbor warned us. Nobody lives on the third floor. First week was quiet. Second week, we heard footsteps every midnight.",
@@ -129,7 +130,8 @@ Scene1Image: (cinematic dark horror scene, no people, no text, eerie atmosphere)
 Scene2Narration: (25-30 words, ENGLISH ONLY, short sentences)
 Scene2Image: (cinematic dark horror scene, no people, no text)
 Scene3Narration: (25-30 words, ENGLISH ONLY, short sentences)
-Scene3Image: (cinematic dark horror scene, no people, no text, dramatic)"""
+Scene3Image: (cinematic dark horror scene, no people, no text, dramatic)
+Question: (1 engaging question for viewers, max 12 words, makes them comment. Examples: "Have you ever experienced something you cannot explain?" "What would you have done in this situation?" "Do you believe this really happened?")"""
             }
         ],
         "temperature": 0.95,
@@ -148,7 +150,8 @@ def parse_story(text):
         "title": "Night Terror",
         "caption": "Some things are better left unseen. 👻",
         "hashtags": "#HorrorPH #PinoyHorror #TrueStoryPH #GabiNgMulto #SweetyStoryLab",
-        "scenes": [{"narration": "", "image_prompt": ""} for _ in range(3)]
+        "scenes": [{"narration": "", "image_prompt": ""} for _ in range(3)],
+        "question": "Have you ever experienced something you cannot explain?"
     }
     text = text.replace("**", "").replace("*", "")
     for line in text.strip().split("\n"):
@@ -175,6 +178,8 @@ def parse_story(text):
             result["scenes"][2]["narration"] = line.replace("Scene3Narration:", "").strip()
         elif line.startswith("Scene3Image:"):
             result["scenes"][2]["image_prompt"] = line.replace("Scene3Image:", "").strip()
+        elif line.startswith("Question:"):
+            result["question"] = line.replace("Question:", "").strip().strip('"')
     return result
 
 def get_content():
@@ -462,7 +467,7 @@ def vtt_to_srt(vtt_path, srt_path):
 # Output: 1080x1920 MP4, H.264 video + AAC audio
 # Facebook Reels requires exactly this format.
 # ============================================================
-def build_video(image_paths, voice_path, srt_path, scenes, title):
+def build_video(image_paths, voice_path, srt_path, scenes, title, question):
     print("Building video with FFmpeg...")
 
     # Get total audio duration
@@ -479,6 +484,11 @@ def build_video(image_paths, voice_path, srt_path, scenes, title):
     for i, (img_path, scene) in enumerate(zip(image_paths, scenes)):
         frame_path = build_frame(img_path, title, i)
         scene_frames.append((frame_path, scene_duration))
+
+    # Add question slide at the end — 4 seconds of black + question text
+    # No narration on this slide, just music playing softly
+    question_frame = build_question_frame(question)
+    scene_frames.append((question_frame, 4.0))  # 4 seconds for question
 
     # Create FFmpeg concat file for slideshow
     concat_file = f"{WORK_DIR}/concat.txt"
@@ -505,7 +515,7 @@ def build_video(image_paths, voice_path, srt_path, scenes, title):
     # Subtitle style: white text, black outline, centered bottom
     subtitle_style = (
         "FontName=Arial,"
-        "FontSize=13,"
+        "FontSize=11,"
         "PrimaryColour=&H00FFFFFF,"
         "OutlineColour=&H00000000,"
         "BackColour=&H80000000,"
@@ -634,6 +644,61 @@ def build_frame(img_path, title, scene_index):
 
     frame_path = f"{WORK_DIR}/frame_{scene_index}.jpg"
     canvas.save(frame_path, "JPEG", quality=95)
+    return frame_path
+
+def build_question_frame(question):
+    """
+    Build a 4th slide — pure black background with a question.
+    No image, no narration, just eerie silence + music + text.
+    This drives comments which boosts Facebook reach significantly.
+    """
+    # Pure black canvas
+    canvas = Image.new("RGB", (1080, 1920), (0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+
+    try:
+        font_question = ImageFont.truetype("/tmp/Lora-Italic.ttf", 52)
+        font_brand = ImageFont.truetype("/tmp/Lora-Italic.ttf", 26)
+        font_comment = ImageFont.truetype("/tmp/Lora-Italic.ttf", 32)
+    except:
+        font_question = font_brand = font_comment = ImageFont.load_default()
+
+    # Decorative line at top
+    draw.rectangle([340, 700, 740, 703], fill=(255, 255, 255, 100))
+
+    # Wrap question text
+    import textwrap
+    wrapped = textwrap.wrap(question, width=22)
+    line_height = 72
+    total_height = len(wrapped) * line_height
+    start_y = 960 - total_height // 2
+
+    # Draw question text centered
+    for i, line in enumerate(wrapped):
+        y = start_y + (i * line_height)
+        # Shadow
+        draw.text((542, y + 2), line, font=font_question, fill=(0, 0, 0, 200), anchor="mm")
+        # Main white text
+        draw.text((540, y), line, font=font_question, fill=(255, 255, 255, 255), anchor="mm")
+
+    end_y = start_y + len(wrapped) * line_height
+
+    # Decorative line at bottom
+    draw.rectangle([340, end_y + 20, 740, end_y + 23], fill=(255, 255, 255, 100))
+
+    # "Comment below 👇" prompt
+    draw.text((542, end_y + 80), "Comment below 👇", font=font_comment,
+              fill=(200, 200, 200, 200), anchor="mm")
+
+    # Brand name
+    draw.text((542, 1882), "SweetyStoryLab", font=font_brand,
+              fill=(150, 150, 150, 180), anchor="mm")
+    draw.text((540, 1880), "SweetyStoryLab", font=font_brand,
+              fill=(255, 255, 255, 160), anchor="mm")
+
+    frame_path = f"{WORK_DIR}/frame_question.jpg"
+    canvas.save(frame_path, "JPEG", quality=95)
+    print("✅ Question slide built!")
     return frame_path
 
 # ============================================================
@@ -770,7 +835,8 @@ def main():
         voice_path, srt_path = generate_voice(scenes)
 
         # Step 4: Build video
-        video_path = build_video(image_paths, voice_path, srt_path, scenes, title)
+        question  = content.get("question", "Have you ever experienced something you cannot explain?")
+        video_path = build_video(image_paths, voice_path, srt_path, scenes, title, question)
 
         # Step 5: Upload
         video_id = upload_reel(video_path, caption)
