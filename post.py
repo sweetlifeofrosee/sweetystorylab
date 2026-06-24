@@ -526,6 +526,19 @@ def build_video(image_paths, voice_path, srt_path, scenes, title, question):
 
     # Temp video without audio
     temp_video = f"{WORK_DIR}/temp_video.mp4"
+    padded_voice = f"{WORK_DIR}/voice_padded.mp3"
+
+    # Pad voice audio with 4 seconds of silence at the end
+    # This ensures the question slide (4s) plays fully before video ends
+    # Without this, -shortest cuts the video when narration ends
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-i", voice_path,
+        "-af", "apad=pad_dur=4",  # Add 4 seconds silence at end
+        "-c:a", "aac",
+        padded_voice
+    ], check=True, capture_output=True)
+    print("✅ Audio padded with 4s silence for question slide")
 
     # Step A: Build slideshow video from images
     subprocess.run([
@@ -570,7 +583,7 @@ def build_video(image_paths, voice_path, srt_path, scenes, title, question):
         result = subprocess.run([
             "ffmpeg", "-y",
             "-i", temp_video,
-            "-i", voice_path,
+            "-i", padded_voice,
             "-stream_loop", "-1", "-i", music_path,
             "-c:v", "libx264",
             "-vf", f"subtitles={srt_path}:force_style='{subtitle_style}'",
@@ -590,7 +603,7 @@ def build_video(image_paths, voice_path, srt_path, scenes, title, question):
         result = subprocess.run([
             "ffmpeg", "-y",
             "-i", temp_video,
-            "-i", voice_path,
+            "-i", padded_voice,
             "-c:v", "libx264",
             "-vf", f"subtitles={srt_path}:force_style='{subtitle_style}'",
             "-c:a", "aac", "-b:a", "192k",
@@ -699,15 +712,15 @@ def build_question_frame(question, last_image_path):
     except:
         font_question = font_brand = font_comment = ImageFont.load_default()
 
-    # Decorative line at top
-    draw.rectangle([340, 700, 740, 703], fill=(255, 255, 255, 100))
-
-    # Wrap question text
+    # Wrap question text — centered vertically on screen
     import textwrap
     wrapped = textwrap.wrap(question, width=22)
     line_height = 72
     total_height = len(wrapped) * line_height
-    start_y = 960 - total_height // 2
+    start_y = 960 - total_height // 2  # Perfectly centered
+
+    # Decorative line ABOVE question (positioned relative to text)
+    draw.rectangle([340, start_y - 40, 740, start_y - 37], fill=(255, 255, 255, 120))
 
     # Draw question text centered
     for i, line in enumerate(wrapped):
@@ -719,12 +732,10 @@ def build_question_frame(question, last_image_path):
 
     end_y = start_y + len(wrapped) * line_height
 
-    # Decorative line at bottom
-    draw.rectangle([340, end_y + 20, 740, end_y + 23], fill=(255, 255, 255, 100))
+    # Decorative line BELOW question
+    draw.rectangle([340, end_y + 20, 740, end_y + 23], fill=(255, 255, 255, 120))
 
-    # No "Comment below" text — let the question speak for itself
-
-    # Brand name
+    # Brand name at very bottom
     draw.text((542, 1882), "SweetyStoryLab", font=font_brand,
               fill=(150, 150, 150, 180), anchor="mm")
     draw.text((540, 1880), "SweetyStoryLab", font=font_brand,
