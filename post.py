@@ -473,6 +473,122 @@ def vtt_to_srt(vtt_path, srt_path):
     print(f"SRT created: {counter-1} subtitle blocks")
 
 # ============================================================
+# STEP 3.5: GENERATE BACKGROUND MUSIC WITH MUSICGEN
+# ============================================================
+# MusicGen is Meta's free AI music model hosted on Hugging Face.
+# No API key needed — uses the free inference API.
+# We ask Groq to generate a music prompt based on the story theme,
+# then MusicGen creates a unique suspense track for each post.
+# This means zero copyright risk — every track is AI generated.
+#
+# Model: facebook/musicgen-small (fast, free, good quality)
+# Output: WAV file, ~30 seconds, converted to MP3 for FFmpeg
+# Fallback: uses sounds/suspense.mp3 if MusicGen fails
+# ============================================================
+
+MUSIC_FILE = f"{WORK_DIR}/music.wav"
+MUSIC_MP3  = f"{WORK_DIR}/music.mp3"
+
+def generate_music_prompt(title, scenes):
+    """
+    Ask Groq to write a MusicGen prompt based on the story.
+    Different stories get different music moods:
+    - Ghost story → eerie strings, slow piano
+    - Aswang → dark Filipino folk, tension
+    - Haunted house → orchestral horror, building dread
+    """
+    print("Generating music prompt with Groq...")
+    story_summary = f"Title: {title}. " + " ".join(s["narration"][:50] for s in scenes)
+
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {
+                "role": "system",
+                "content": "You write short music prompts for AI music generation. Max 20 words. Describe mood, instruments, tempo only."
+            },
+            {
+                "role": "user",
+                "content": f"Write a MusicGen prompt for background horror music that fits this story: {story_summary}. Focus on mood and instruments. No lyrics. Max 20 words."
+            }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 50
+    }
+    res = requests.post("https://api.groq.com/openai/v1/chat/completions",
+                        headers=headers, json=payload, timeout=15)
+    res.raise_for_status()
+    prompt = res.json()["choices"][0]["message"]["content"].strip()
+    print(f"Music prompt: {prompt}")
+    return prompt
+
+def generate_music(title, scenes):
+    """
+    Generate unique background music using MusicGen via Hugging Face.
+    Falls back to local suspense.mp3 if generation fails.
+    """
+    print("Generating background music with MusicGen...")
+
+    try:
+        # Get story-specific music prompt from Groq
+        music_prompt = generate_music_prompt(title, scenes)
+
+        # Call Hugging Face MusicGen API
+        # musicgen-small is fast and free on HF inference API
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "inputs": music_prompt,
+            "parameters": {
+                "max_new_tokens": 512,  # ~30 seconds of music
+                "duration": 30          # 30 second track
+            }
+        }
+
+        print("Calling MusicGen on Hugging Face...")
+        res = requests.post(
+            "https://api-inference.huggingface.co/models/facebook/musicgen-small",
+            headers=headers,
+            json=payload,
+            timeout=120  # MusicGen can be slow on free tier
+        )
+
+        if res.status_code == 503:
+            print("⚠️ MusicGen model loading — retrying in 20s...")
+            time.sleep(20)
+            res = requests.post(
+                "https://api-inference.huggingface.co/models/facebook/musicgen-small",
+                headers=headers,
+                json=payload,
+                timeout=120
+            )
+
+        res.raise_for_status()
+
+        # Save WAV file
+        with open(MUSIC_FILE, "wb") as f:
+            f.write(res.content)
+
+        # Convert WAV to MP3 for FFmpeg mixing
+        subprocess.run([
+            "ffmpeg", "-y", "-i", MUSIC_FILE,
+            "-codec:a", "libmp3lame", "-q:a", "2",
+            MUSIC_MP3
+        ], check=True, capture_output=True)
+
+        print(f"✅ AI music generated!")
+        return MUSIC_MP3
+
+    except Exception as e:
+        print(f"⚠️ MusicGen failed: {e}")
+        # Fallback to local suspense music if it exists
+        if os.path.exists("sounds/suspense.mp3"):
+            print("Using local suspense.mp3 as fallback")
+            return "sounds/suspense.mp3"
+        print("No fallback music available — posting without music")
+        return None
+
+# ============================================================
 # STEP 4: BUILD VIDEO — 3-IMAGE SLIDESHOW + VOICE + SUBTITLES
 # ============================================================
 # FFmpeg is a free, powerful video processing tool.
@@ -492,7 +608,7 @@ def vtt_to_srt(vtt_path, srt_path):
 # Output: 1080x1920 MP4, H.264 video + AAC audio
 # Facebook Reels requires exactly this format.
 # ============================================================
-def build_video(image_paths, voice_path, srt_path, scenes, title, question):
+def build_video(image_paths, voice_path, srt_path, scenes, title, question, music_path=None):
     print("Building video with FFmpeg...")
 
     # Get total audio duration
@@ -625,12 +741,11 @@ def build_video(image_paths, voice_path, srt_path, scenes, title, question):
         "MarginV=120"       # Above brand name
     )
 
-    # Check if suspense music file exists in repo
-    music_path = "sounds/suspense.mp3"
-    has_music = os.path.exists(music_path)
+    # Use AI generated music or fallback
+    has_music = music_path is not None and os.path.exists(music_path)
 
     if has_music:
-        print("Mixing in background suspense music at 15% volume...")
+        print(f"Mixing in background music at 15% volume: {music_path}")
         # FFmpeg audio mixing explanation:
         # -i temp_video   = our slideshow video (no audio)
         # -i voice_path   = the narration voice (foreground)
@@ -938,8 +1053,10 @@ def main():
         voice_path, srt_path = generate_voice(scenes)
 
         # Step 4: Build video
-        question  = content.get("question", "Have you ever experienced something you cannot explain?")
-        video_path = build_video(image_paths, voice_path, srt_path, scenes, title, question)
+        question   = content.get("question", "Have you ever experienced something you cannot explain?")
+        # Generate unique AI music based on story theme
+        music_path = generate_music(title, scenes)
+        video_path = build_video(image_paths, voice_path, srt_path, scenes, title, question, music_path)
 
         # Step 5: Upload
         video_id = upload_reel(video_path, caption)
