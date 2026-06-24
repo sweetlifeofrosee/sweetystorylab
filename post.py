@@ -485,9 +485,9 @@ def build_video(image_paths, voice_path, srt_path, scenes, title, question):
         frame_path = build_frame(img_path, title, i)
         scene_frames.append((frame_path, scene_duration))
 
-    # Add question slide at the end — 4 seconds of black + question text
-    # No narration on this slide, just music playing softly
-    question_frame = build_question_frame(question)
+    # Add question slide at the end — 4 seconds using last horror image
+    # Heavily darkened so question text stands out
+    question_frame = build_question_frame(question, image_paths[-1])
     scene_frames.append((question_frame, 4.0))  # 4 seconds for question
 
     # Create FFmpeg concat file for slideshow
@@ -646,14 +646,25 @@ def build_frame(img_path, title, scene_index):
     canvas.save(frame_path, "JPEG", quality=95)
     return frame_path
 
-def build_question_frame(question):
+def build_question_frame(question, last_image_path):
     """
-    Build a 4th slide — pure black background with a question.
-    No image, no narration, just eerie silence + music + text.
+    Build a 4th slide — uses the last horror image as background.
+    Heavily darkened so the question text stands out clearly.
+    No narration, just eerie music + question text.
     This drives comments which boosts Facebook reach significantly.
     """
-    # Pure black canvas
-    canvas = Image.new("RGB", (1080, 1920), (0, 0, 0))
+    # Use last horror image as background, heavily darkened
+    try:
+        img = Image.open(last_image_path).convert("RGB")
+        # Blurred dark background
+        bg = img.resize((1080, 1920), Image.LANCZOS)
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=30))
+        # Very dark overlay — 80% dark so question text is readable
+        darkener = Image.new("RGB", (1080, 1920), (0, 0, 0))
+        canvas = Image.blend(bg, darkener, 0.80)
+    except:
+        # Fallback to black if image fails
+        canvas = Image.new("RGB", (1080, 1920), (0, 0, 0))
     draw = ImageDraw.Draw(canvas)
 
     try:
