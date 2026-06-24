@@ -547,14 +547,68 @@ def build_video(image_paths, voice_path, srt_path, scenes, title, question):
     else:
         print("✅ Audio padded with 4s silence for question slide")
 
-    # Step A: Build slideshow video from images
-    subprocess.run([
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0", "-i", concat_file,
-        "-vf", "scale=1080:1920,fps=30",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-r", "30", temp_video
-    ], check=True, capture_output=True)
+    # Step A: Build slideshow with smooth crossfade transitions between scenes
+    # We use FFmpeg's xfade filter to blend frames smoothly.
+    # Each transition = 0.8 second crossfade overlap between slides.
+    # Process: load each frame separately, chain xfade filters together.
+    num_frames = len(scene_frames)
+    fade_duration = 0.8  # seconds for each crossfade
+
+    if num_frames == 1:
+        # Only one frame — no transitions needed
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-loop", "1", "-i", scene_frames[0][0],
+            "-t", str(scene_frames[0][1]),
+            "-vf", "scale=1080:1920,fps=30",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            temp_video
+        ], check=True, capture_output=True)
+    else:
+        # Build xfade filter chain for smooth crossfades
+        # Each frame is loaded as separate input with its duration
+        # xfade filter blends them: offset = cumulative time - fade_duration
+        inputs = []
+        for frame_path, duration in scene_frames:
+            inputs += ["-loop", "1", "-t", str(duration + fade_duration), "-i", frame_path]
+
+        # Build filter chain: [0][1]xfade=offset=T1, [fade1][2]xfade=offset=T2, etc.
+        filter_parts = []
+        cumulative = 0.0
+        prev_label = "[0:v]"
+
+        for i in range(1, num_frames):
+            cumulative += scene_frames[i-1][1]
+            offset = max(0.1, cumulative - fade_duration)
+            out_label = f"[fade{i}]" if i < num_frames - 1 else ""
+            filter_parts.append(
+                f"{prev_label}[{i}:v]xfade=transition=fade:duration={fade_duration}:offset={offset:.3f}{out_label}"
+            )
+            prev_label = f"[fade{i}]"
+
+        filter_complex = ",".join(filter_parts) if len(filter_parts) == 1 else ";".join(filter_parts)
+        filter_complex += f",scale=1080:1920,fps=30"
+
+        result = subprocess.run([
+            "ffmpeg", "-y",
+        ] + inputs + [
+            "-filter_complex", filter_complex,
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-r", "30", temp_video
+        ], capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print(f"⚠️ Crossfade failed: {result.stderr[-300:]} — falling back to hard cuts")
+            # Fallback to simple concat if xfade fails
+            subprocess.run([
+                "ffmpeg", "-y",
+                "-f", "concat", "-safe", "0", "-i", concat_file,
+                "-vf", "scale=1080:1920,fps=30",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-r", "30", temp_video
+            ], check=True, capture_output=True)
+        else:
+            print("✅ Slideshow with crossfade transitions built!")
 
     # Step B: Add voice + background music + burned subtitles
     # Subtitle style: white text, black outline, centered bottom
@@ -726,21 +780,18 @@ def build_question_frame(question, last_image_path):
     total_height = len(wrapped) * line_height
     start_y = 960 - total_height // 2  # Perfectly centered
 
-    # Decorative line ABOVE question (positioned relative to text)
-    draw.rectangle([340, start_y - 40, 740, start_y - 37], fill=(255, 255, 255, 120))
-
-    # Draw question text centered
+    # Draw question text — bold white with strong shadow for standout effect
     for i, line in enumerate(wrapped):
         y = start_y + (i * line_height)
-        # Shadow
-        draw.text((542, y + 2), line, font=font_question, fill=(0, 0, 0, 200), anchor="mm")
-        # Main white text
-        draw.text((540, y), line, font=font_question, fill=(255, 255, 255, 255), anchor="mm")
+        # Strong multi-layer shadow for depth
+        for offset in [(3, 3), (2, 2), (1, 1)]:
+            draw.text((540 + offset[0], y + offset[1]), line, font=font_question,
+                      fill=(0, 0, 0, 180), anchor="mm")
+        # Main bright white text
+        draw.text((540, y), line, font=font_question,
+                  fill=(255, 255, 255, 255), anchor="mm")
 
     end_y = start_y + len(wrapped) * line_height
-
-    # Decorative line BELOW question
-    draw.rectangle([340, end_y + 20, 740, end_y + 23], fill=(255, 255, 255, 120))
 
     # Brand name at very bottom
     draw.text((542, 1882), "SweetyStoryLab", font=font_brand,
