@@ -49,7 +49,7 @@ os.makedirs(WORK_DIR, exist_ok=True)
 FALLBACK = {
     "title": "The Third Floor",
     "caption": "He went up for ten minutes. He never came back the same. 👻",
-    "hashtags": "#HorrorPH #TrueStoryPH #GabiNgMulto #PinoyHorror #SweetyStoryLab #CreepyPH",
+    "hashtags": "#Horror #ScaryStories #GhostStories #Paranormal #Supernatural #HauntedPlace #TrueHorror #NightmareFuel #Creepy #Unexplained #DarkStories #HorrorShorts #StoryTime #Eerie #Thriller #SweetyStoryLab",
     "question": "Have you ever heard footsteps when nobody was there?",
     "scenes": [
         {
@@ -248,9 +248,34 @@ def generate_voice_elevenlabs(text):
     """
     print("Trying ElevenLabs voice (emotional)...")
 
-    # ElevenLabs voice IDs — Daniel is deep and dramatic
-    # Other good horror voices: Adam (onwK4e9ZLuTAKqWW03F2), Antoni (ErXwobaYiN019PkySvjV)
-    VOICE_ID = "onwK4e9ZLuTAKqWW03F2"  # Adam — deep, warm, expressive
+    # Fetch available voices from account and pick best one for horror
+    # This avoids hardcoded IDs that may not exist on free accounts
+    try:
+        voices_res = requests.get(
+            "https://api.elevenlabs.io/v1/voices",
+            headers={"xi-api-key": ELEVENLABS_API_KEY},
+            timeout=10
+        )
+        voices = voices_res.json().get("voices", [])
+        # Prefer deep/dramatic voices for horror
+        preferred = ["Daniel", "Adam", "Antoni", "Josh", "Arnold", "Thomas"]
+        VOICE_ID = None
+        for name in preferred:
+            match = next((v for v in voices if v["name"] == name), None)
+            if match:
+                VOICE_ID = match["voice_id"]
+                print(f"Using ElevenLabs voice: {name}")
+                break
+        # Fall back to first available voice if none of preferred found
+        if not VOICE_ID and voices:
+            VOICE_ID = voices[0]["voice_id"]
+            print(f"Using ElevenLabs voice: {voices[0]['name']}")
+        if not VOICE_ID:
+            print("No voices found on ElevenLabs account")
+            return False
+    except Exception as e:
+        print(f"Could not fetch voices: {e}")
+        return False
 
     headers = {
         "xi-api-key": ELEVENLABS_API_KEY,
@@ -697,9 +722,7 @@ def build_question_frame(question, last_image_path):
     # Decorative line at bottom
     draw.rectangle([340, end_y + 20, 740, end_y + 23], fill=(255, 255, 255, 100))
 
-    # "Comment below 👇" prompt
-    draw.text((542, end_y + 80), "Comment below 👇", font=font_comment,
-              fill=(200, 200, 200, 200), anchor="mm")
+    # No "Comment below" text — let the question speak for itself
 
     # Brand name
     draw.text((542, 1882), "SweetyStoryLab", font=font_brand,
