@@ -5,7 +5,7 @@ Posts 3x daily at 8AM / 2PM / 8PM PHT. Zero manual work after setup.
 
 ## What it produces
 - 60-90 second vertical video (1080x1920)
-- Taglish horror story narrated by AI voice
+- Horror story narrated by AI voice
 - Creepy AI-generated horror image background
 - Auto-posted as Facebook Reel to SweetyStoryLab
 
