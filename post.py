@@ -143,6 +143,7 @@ Question: (1 engaging question for viewers, max 12 words, makes them comment. Ex
     res.raise_for_status()
     text = res.json()["choices"][0]["message"]["content"].strip()
     print("Groq response received")
+    print(f"RAW RESPONSE:\n{text}")
     return parse_story(text)
 
 def parse_story(text):
