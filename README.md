@@ -1,6 +1,6 @@
 # SweetyStoryLab — Horror Reels Bot
 
-Fully automated Filipino horror Reels for Facebook.
+Fully automated horror Reels for Facebook.
 Posts 3x daily at 8AM / 2PM / 8PM PHT. Zero manual work after setup.
 
 ## What it produces
