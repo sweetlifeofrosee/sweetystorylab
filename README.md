@@ -1,7 +1,7 @@
 # SweetyStoryLab — Horror Reels Bot
 
 Fully automated horror Reels for **Facebook** and **TikTok** *(TikTok pending API approval)*.
-Posts 3x daily at 8AM / 2PM / 8PM PHT. Zero manual work after setup.
+Posts once daily at 7PM PHT. Zero manual work after setup.
 
 ---
 
