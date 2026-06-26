@@ -410,8 +410,19 @@
     </div>
   </div>
 
-  <!-- PRIVACY POLICY -->
-  <div class="policy" id="privacy">
+  <!-- LEGAL LINKS -->
+  <div class="policy" id="privacy" style="text-align:center; padding: 60px 24px;">
+    <div style="max-width:720px; margin: 0 auto;">
+      <p class="section-label">Legal</p>
+      <div class="divider" style="margin: 0 auto 32px;"></div>
+      <p style="color: var(--ash); font-size: 15px; margin-bottom: 32px;">Our Privacy Policy and Terms of Service are available on their own dedicated pages.</p>
+      <div style="display:flex; gap:16px; justify-content:center; flex-wrap:wrap;">
+        <a href="privacy.html" class="btn btn-ghost">Privacy Policy</a>
+        <a href="terms.html" class="btn btn-ghost">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+  <div style="display:none;" id="privacy-hidden">
     <div class="policy-inner">
       <h2>Privacy Policy</h2>
       <p class="policy-date">Last updated: June 2025</p>
@@ -451,8 +462,10 @@
     </div>
   </div>
 
-  <!-- TERMS OF SERVICE -->
-  <div class="terms" id="terms">
+  </div><!-- end privacy-hidden -->
+
+  <!-- TERMS OF SERVICE (now on separate page: terms.html) -->
+  <div style="display:none;" class="terms" id="terms">
     <p class="section-label">Legal</p>
     <div class="divider"></div>
     <h2>Terms of Service</h2>
@@ -480,6 +493,11 @@
   <!-- FOOTER -->
   <footer>
     <p>© 2025 SweetyStoryLab &nbsp;·&nbsp; <span>Dark stories every night</span> &nbsp;·&nbsp; Don't read this alone. 👻</p>
+    <p style="margin-top: 12px;">
+      <a href="privacy.html" style="color: var(--ash); text-decoration: none; font-size: 12px; letter-spacing: 0.05em;">Privacy Policy</a>
+      &nbsp;·&nbsp;
+      <a href="terms.html" style="color: var(--ash); text-decoration: none; font-size: 12px; letter-spacing: 0.05em;">Terms of Service</a>
+    </p>
   </footer>
 
 </body>
