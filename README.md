@@ -23,7 +23,7 @@ Posts once daily at 7PM PHT. Zero manual work after setup.
 | Tool | Purpose |
 |------|---------|
 | GitHub Actions | Free scheduler + runner |
-| Groq (llama-3.1-8b) | Horror story + music prompt generation |
+| Groq (openai/gpt-oss-20b) | Horror story + music prompt generation |
 | Edge TTS / ElevenLabs | AI voice narration + subtitles |
 | Pollinations.ai | Free AI image generation (3 per video) |
 | MusicGen (Hugging Face) | AI-generated suspense background music |
@@ -83,7 +83,7 @@ Repo → Settings → Secrets and variables → Actions
 ## Pipeline (per post)
 
 ```
-Groq → horror story (3 scenes + image prompts + music prompt)
+Groq (openai/gpt-oss-20b) → horror story (3 scenes + image prompts + music prompt)
   ↓
 Pollinations → 3 horror images
   ↓
@@ -101,6 +101,21 @@ SQLite → log result
 
 ---
 
+## Local Development
+
+```bash
+# Clone the repo
+git clone git@github.com:sweetlifeofrosee/sweetystorylab.git
+cd sweetystorylab
+
+# Make changes locally, then push
+git add .
+git commit -m "your message"
+git push
+```
+
+---
+
 ## To test manually
 
 Actions tab → **Horror Reels Bot** → Run workflow
@@ -114,6 +129,14 @@ Actions tab → **Horror Reels Bot** → Run workflow
 - Duration: ~60–90 seconds (voice length) + 4s question slide
 - Size: ~5–15MB per video
 - Transitions: smooth crossfade between 3 scenes
+
+---
+
+## Website
+
+- **Homepage:** https://sweetlifeofrosee.github.io/sweetystorylab
+- **Privacy Policy:** https://sweetlifeofrosee.github.io/sweetystorylab/privacy.html
+- **Terms of Service:** https://sweetlifeofrosee.github.io/sweetystorylab/terms.html
 
 ---
 

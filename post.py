@@ -76,7 +76,7 @@ def generate_story():
 
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
-        "model": "openai/gpt-oss-20b",
+        "model": "llama-3.3-70b-versatile",
         "messages": [
             {
                 "role": "system",
@@ -143,7 +143,6 @@ Question: (1 engaging question for viewers, max 12 words, makes them comment. Ex
     res.raise_for_status()
     text = res.json()["choices"][0]["message"]["content"].strip()
     print("Groq response received")
-    print(f"RAW RESPONSE:\n{text}")
     return parse_story(text)
 
 def parse_story(text):
@@ -503,7 +502,7 @@ def generate_music_prompt(title, scenes):
 
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
-        "model": "openai/gpt-oss-20b",
+        "model": "llama-3.3-70b-versatile",
         "messages": [
             {
                 "role": "system",
