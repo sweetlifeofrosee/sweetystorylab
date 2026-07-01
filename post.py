@@ -81,40 +81,46 @@ def generate_story():
             {
                 "role": "system",
                 "content": (
-                    "You are a Filipino horror story writer for Facebook Reels. "
-                    "You are a master horror storyteller with knowledge of horror from around the world: "
-                    "Filipino folklore (aswang, manananggal, tikbalang, white lady, multo, engkanto), "
-                    "urban legends, haunted places, paranormal encounters, ghost stories, "
-                    "creepy mysteries, supernatural events, psychological horror, and unexplained phenomena. "
-                    "Stories can be set anywhere — provinces, cities, hospitals, highways, hotels, forests, "
-                    "schools, old houses, beaches, or any eerie location worldwide. "
-                    "IMPORTANT: Always write in ENGLISH ONLY. No Tagalog or Filipino words ever. "
-                    "Short punchy sentences. Max 10 words per sentence. "
-                    "No gore. Psychological fear only. True story style. "
-                    "Always end with an unanswered mystery or twist."
+                    "You are a world-class horror story writer for Facebook and TikTok Reels. "
+                    "You write immersive, narrative-driven horror stories set anywhere in the world — "
+                    "Japan, USA, Philippines, UK, Mexico, Indonesia, Korea, Brazil, India, Europe, Africa, Middle East, and beyond. "
+                    "You draw from horror traditions worldwide: "
+                    "Japanese urban legends (kuchisake-onna, teke-teke), American ghost stories, Filipino folklore (aswang, white lady), "
+                    "Korean horror, Latin American mythology (la llorona, el silbon), European dark fairy tales, "
+                    "African supernatural stories, haunted hotels, abandoned hospitals, cursed highways, and unexplained phenomena. "
+                    "IMPORTANT: Vary the setting every single time — do NOT repeat the same country or location type. "
+                    "Always write in ENGLISH ONLY. "
+                    "Write in first-person, true story style. Use complete sentences with proper narrative flow. "
+                    "Build atmosphere slowly. Include character names, specific locations, and real emotions. "
+                    "No gore. Psychological fear only. Always end with an unanswered mystery or chilling twist."
                 )
             },
             {
                 "role": "user",
-                "content": """First, invent a unique and original Filipino horror theme.
+                "content": """First, pick a country or culture from anywhere in the world (Japan, Korea, USA, Mexico, UK, Brazil, Indonesia, India, Philippines, Thailand, Russia, Nigeria, etc.) and invent a unique horror theme inspired by that culture.
+Avoid repeating the same country. Each story should feel like it comes from a different part of the world.
 Be creative — mix creatures, settings, and situations in unexpected ways.
 Avoid repeating common themes. Think of something fresh and specific.
 
 Then write a complete 3-scene horror story based on your invented theme.
+Write in first-person ("I", "we"). Use character names. Include specific details.
+Each scene should be 60-80 words — enough to tell a real story, not just fragments.
+Use complete sentences with natural flow. Build dread slowly across all 3 scenes.
 
-Each scene is ~25-30 words. Short sentences. Build fear slowly.
-Scene 1 = hook and setup
-Scene 2 = tension and discovery
-Scene 3 = twist or unanswered mystery
+Scene 1 = introduce the character, setting, and first sign something is wrong
+Scene 2 = tension builds, the character investigates or something disturbing is discovered
+Scene 3 = terrifying climax or chilling twist — leave an unanswered mystery
 
 CRITICAL RULES:
 - Everything in ENGLISH ONLY. No Tagalog. No Filipino words ever.
-- Hashtags must be relevant to THIS specific story — not generic every time.
+- Write like a real person sharing a true experience — immersive and believable
+- NO fragmented sentences like "broken lights. shattered dreams." — write full narratives
+- Hashtags must be relevant to THIS specific story
 
 Output ONLY this exact format, nothing else:
 Theme: (your invented horror theme, 1 line, English only)
 Title: (max 5 words, mysterious, English only)
-Caption: (1 punchy Facebook line, max 15 words, add 👻, English only)
+Caption: (1 punchy hook line, max 15 words, add 👻, English only)
 Hashtags: (15-20 hashtags relevant to THIS story. Mix broad and niche.
   Always include: #Horror #SweetyStoryLab
   Pick relevant ones from these categories based on story content:
@@ -125,17 +131,17 @@ Hashtags: (15-20 hashtags relevant to THIS story. Mix broad and niche.
   - Platform: #HorrorTok #HorrorShorts #ScaryTok #StoryTime #HorrorReels
   - Filipino: #HorrorPH #PinoyHorror #FilipinoPH (only if story has Filipino elements)
   Return as one line of hashtags, no explanations)
-Scene1Narration: (25-30 words, ENGLISH ONLY, short sentences)
+Scene1Narration: (60-80 words, first person, full sentences, ENGLISH ONLY)
 Scene1Image: (cinematic dark horror scene, no people, no text, eerie atmosphere)
-Scene2Narration: (25-30 words, ENGLISH ONLY, short sentences)
+Scene2Narration: (60-80 words, first person, full sentences, ENGLISH ONLY)
 Scene2Image: (cinematic dark horror scene, no people, no text)
-Scene3Narration: (25-30 words, ENGLISH ONLY, short sentences)
+Scene3Narration: (60-80 words, first person, full sentences, ENGLISH ONLY)
 Scene3Image: (cinematic dark horror scene, no people, no text, dramatic)
 Question: (1 engaging question for viewers, max 12 words, makes them comment. Examples: "Have you ever experienced something you cannot explain?" "What would you have done in this situation?" "Do you believe this really happened?")"""
             }
         ],
         "temperature": 0.95,
-        "max_tokens": 700
+        "max_tokens": 1200
     }
 
     res = requests.post("https://api.groq.com/openai/v1/chat/completions",
