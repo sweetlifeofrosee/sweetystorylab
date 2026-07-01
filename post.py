@@ -368,7 +368,7 @@ def generate_srt_from_voice(text):
 
     srt_blocks = []
     counter = 1
-    chunk_size = 6  # Words per subtitle line
+    chunk_size = 4  # Words per subtitle line
 
     for i in range(0, total_words, chunk_size):
         chunk = words[i:i + chunk_size]
