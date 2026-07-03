@@ -222,7 +222,16 @@ def generate_image(prompt, index):
                 seed = random.randint(1, 99999)
                 url = f"https://image.pollinations.ai/prompt/{encoded}?width=1080&height=1080&nologo=true&seed={seed}"
 
-    raise Exception(f"Image {index+1} failed after 3 attempts")
+    # All retries failed — use pre-made fallback image
+    fallback_path = f"images/fallback_{index}.jpg"
+    if os.path.exists(fallback_path):
+        print(f"Using fallback image: {fallback_path}")
+        path = f"{WORK_DIR}/image_{index}.jpg"
+        import shutil
+        shutil.copy(fallback_path, path)
+        return path
+
+    raise Exception(f"Image {index+1} failed after 3 attempts and no fallback found")
 
 # ============================================================
 # STEP 3: GENERATE VOICE + SUBTITLES
@@ -672,9 +681,16 @@ def main():
             try:
                 path = generate_image(scene["image_prompt"], i)
             except Exception as e:
-                print(f"Image {i+1} failed after retries: {e} — using dark fallback")
+                print(f"Image {i+1} failed after retries: {e}")
+                fallback = f"images/fallback_{i}.jpg"
                 path = f"{WORK_DIR}/image_{i}.jpg"
-                Image.new("RGB", (1080, 1080), (5, 5, 10)).save(path, "JPEG")
+                if os.path.exists(fallback):
+                    import shutil
+                    shutil.copy(fallback, path)
+                    print(f"Using fallback image {i+1}")
+                else:
+                    Image.new("RGB", (1080, 1080), (5, 5, 10)).save(path, "JPEG")
+                    print(f"Using dark fallback for image {i+1}")
             image_paths.append(path)
             time.sleep(2)
 
