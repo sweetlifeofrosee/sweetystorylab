@@ -339,7 +339,7 @@ def generate_srt_from_voice(text):
     time_per_word = duration / total_words if total_words > 0 else 0.4
     srt_blocks = []
     counter = 1
-    chunk_size = 4
+    chunk_size = 3
 
     for i in range(0, total_words, chunk_size):
         chunk = words[i:i + chunk_size]
@@ -504,9 +504,9 @@ def build_video(image_paths, voice_path, srt_path, scenes, title, question, musi
             print("✅ Slideshow with crossfade transitions built!")
 
     subtitle_style = (
-        "FontName=Arial,FontSize=11,PrimaryColour=&H00FFFFFF,"
+        "FontName=Arial,FontSize=9,PrimaryColour=&H00FFFFFF,"
         "OutlineColour=&H00000000,BackColour=&H80000000,"
-        "Bold=1,Outline=3,Shadow=2,Alignment=2,MarginV=120"
+        "Bold=1,Outline=3,Shadow=2,Alignment=2,MarginV=80"
     )
 
     has_music = music_path is not None and os.path.exists(music_path)
