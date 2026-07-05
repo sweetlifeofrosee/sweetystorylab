@@ -116,6 +116,8 @@ CRITICAL RULES:
 - Everything in ENGLISH ONLY. No Tagalog. No Filipino words ever.
 - Write like a real person sharing a true experience — immersive and believable
 - NO fragmented sentences like "broken lights. shattered dreams." — write full narratives
+- Use a DIFFERENT character name every single story — never reuse names like Maria, John, etc.
+- Character names should match the country/culture of the story (Japanese story = Japanese name, etc.)
 - Hashtags must be relevant to THIS specific story
 
 Output ONLY this exact format, nothing else:
