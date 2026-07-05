@@ -419,7 +419,43 @@ def vtt_to_srt(vtt_path, srt_path):
                     timed_words.append((block_start, word))
 
     if not timed_words:
-        print("No timed words found in VTT")
+        print("No timed words found in VTT — falling back to text-based SRT")
+        # Extract plain text from raw VTT
+        all_text = re.sub(r"<[^>]+>", "", raw)
+        all_text = re.sub(r"WEBVTT", "", all_text)
+        all_text = re.sub(r"\d{2}:\d{2}:\d{2}\.\d{3}.*-->.*", "", all_text)
+        all_text = " ".join(all_text.split())
+        words = all_text.split()
+        if not words:
+            # Write a dummy SRT so FFmpeg doesn't crash
+            with open(srt_path, "w", encoding="utf-8") as f:
+                f.write("1\n00:00:00,000 --> 00:00:01,000\n \n")
+            print("Empty SRT written as placeholder")
+            return
+        # Estimate timing from audio duration
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", VOICE_FILE],
+            capture_output=True, text=True
+        )
+        duration = float(json.loads(probe.stdout)["streams"][0]["duration"])
+        total_words = len(words)
+        time_per_word = duration / total_words if total_words > 0 else 0.4
+        srt_out = []
+        counter = 1
+        chunk_size = 4
+        for i in range(0, total_words, chunk_size):
+            chunk = words[i:i + chunk_size]
+            start_t = i * time_per_word
+            end_t = min((i + chunk_size) * time_per_word, duration)
+            def fmt(t):
+                h = int(t // 3600); m = int((t % 3600) // 60)
+                s = int(t % 60); ms = int((t % 1) * 1000)
+                return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+            srt_out.append(f"{counter}\n{fmt(start_t)} --> {fmt(end_t)}\n{' '.join(chunk)}")
+            counter += 1
+        with open(srt_path, "w", encoding="utf-8") as f:
+            f.write("\n\n".join(srt_out))
+        print(f"SRT fallback created: {counter-1} blocks")
         return
 
     # Re-chunk into groups of max 4 words
@@ -564,7 +600,7 @@ def build_video(image_paths, voice_path, srt_path, scenes, title, question, musi
     subtitle_style = (
         "FontName=Arial,FontSize=11,PrimaryColour=&H00FFFFFF,"
         "OutlineColour=&H00000000,BackColour=&H80000000,"
-        "Bold=1,Outline=3,Shadow=2,Alignment=2,MarginV=120"
+        "Bold=1,Outline=2,Shadow=0,BorderStyle=4,Alignment=2,MarginV=120"
     )
 
     has_music = music_path is not None and os.path.exists(music_path)
