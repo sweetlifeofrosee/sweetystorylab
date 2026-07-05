@@ -116,8 +116,6 @@ CRITICAL RULES:
 - Everything in ENGLISH ONLY. No Tagalog. No Filipino words ever.
 - Write like a real person sharing a true experience — immersive and believable
 - NO fragmented sentences like "broken lights. shattered dreams." — write full narratives
-- Use a DIFFERENT character name every single story — never reuse names like Maria, John, etc.
-- Character names should match the country/culture of the story (Japanese story = Japanese name, etc.)
 - Hashtags must be relevant to THIS specific story
 
 Output ONLY this exact format, nothing else:
@@ -339,7 +337,7 @@ def generate_srt_from_voice(text):
     time_per_word = duration / total_words if total_words > 0 else 0.4
     srt_blocks = []
     counter = 1
-    chunk_size = 3
+    chunk_size = 4
 
     for i in range(0, total_words, chunk_size):
         chunk = words[i:i + chunk_size]
@@ -376,30 +374,90 @@ def generate_voice(scenes, gender="male"):
     return VOICE_FILE, SRT_FILE
 
 def vtt_to_srt(vtt_path, srt_path):
+    """
+    Convert VTT to SRT and re-chunk into max 4 words per subtitle block.
+    Edge TTS sometimes outputs full sentences per block which cover the image.
+    We extract all timed words, then regroup into small chunks with proper timing.
+    """
     with open(vtt_path, "r", encoding="utf-8") as f:
         raw = f.read()
-    raw = re.sub(r"WEBVTT\n", "", raw)
-    raw = re.sub(r"NOTE[^\n]*\n[^\n]*\n", "", raw)
+
+    # Extract all word-level timings from VTT
+    # Edge TTS uses format: <00:00:01.500><c>word</c>
+    timed_words = []
     blocks = raw.strip().split("\n\n")
-    srt_out = []
-    counter = 1
+
     for block in blocks:
         lines = [l.strip() for l in block.strip().split("\n") if l.strip()]
         if not lines: continue
         timing_line = next((l for l in lines if "-->" in l), None)
         if not timing_line: continue
-        timing = re.sub(r"(\d{2}:\d{2}:\d{2})\.(\d{3})", r"\1,\2", timing_line)
-        timing = re.sub(r"\s+(align|position|line|size):\S+", "", timing).strip()
+
+        # Get block start time
+        start_match = re.match(r"(\d{2}:\d{2}:\d{2}\.\d{3})", timing_line)
+        if not start_match: continue
+        block_start = start_match.group(1)
+
+        # Get full text of block
         text_lines = [l for l in lines if "-->" not in l]
-        text = " ".join(text_lines)
-        text = re.sub(r"<[^>]+>", "", text).strip()
-        text = re.sub(r"^\d+[\s\.]+", "", text).strip()
-        if text:
-            srt_out.append(f"{counter}\n{timing}\n{text}")
-            counter += 1
+        full_text = " ".join(text_lines)
+
+        # Try to extract word-level timings from VTT cue tags
+        word_timings = re.findall(r"<(\d{2}:\d{2}:\d{2}\.\d{3})><c>([^<]+)</c>", full_text)
+
+        if word_timings:
+            for t, w in word_timings:
+                w = w.strip()
+                if w:
+                    timed_words.append((t, w))
+        else:
+            # No word-level timing — clean text and add with block start time
+            clean = re.sub(r"<[^>]+>", "", full_text).strip()
+            clean = re.sub(r"^\d+[\s\.]+", "", clean).strip()
+            for word in clean.split():
+                if word:
+                    timed_words.append((block_start, word))
+
+    if not timed_words:
+        print("No timed words found in VTT")
+        return
+
+    # Re-chunk into groups of max 4 words
+    chunk_size = 4
+    srt_out = []
+    counter = 1
+
+    def vtt_time_to_srt(t):
+        # Convert 00:00:01.500 → 00:00:01,500
+        return t.replace(".", ",")
+
+    for i in range(0, len(timed_words), chunk_size):
+        chunk = timed_words[i:i + chunk_size]
+        start_time = vtt_time_to_srt(chunk[0][0])
+
+        # End time = start of next chunk or last word time + 0.5s
+        if i + chunk_size < len(timed_words):
+            end_time = vtt_time_to_srt(timed_words[i + chunk_size][0])
+        else:
+            # Last chunk — add 0.5s to last word time
+            last_t = chunk[-1][0]
+            h, m, rest = last_t.split(":")
+            s, ms = rest.split(".")
+            total_ms = int(h)*3600000 + int(m)*60000 + int(s)*1000 + int(ms)
+            total_ms += 500
+            eh = total_ms // 3600000
+            em = (total_ms % 3600000) // 60000
+            es = (total_ms % 60000) // 1000
+            ems = total_ms % 1000
+            end_time = f"{eh:02d}:{em:02d}:{es:02d},{ems:03d}"
+
+        text = " ".join(w for _, w in chunk)
+        srt_out.append(f"{counter}\n{start_time} --> {end_time}\n{text}")
+        counter += 1
+
     with open(srt_path, "w", encoding="utf-8") as f:
         f.write("\n\n".join(srt_out))
-    print(f"SRT created: {counter-1} subtitle blocks")
+    print(f"SRT created: {counter-1} subtitle blocks (max 4 words each)")
 
 # ============================================================
 # STEP 3.5: BACKGROUND MUSIC
@@ -504,9 +562,9 @@ def build_video(image_paths, voice_path, srt_path, scenes, title, question, musi
             print("✅ Slideshow with crossfade transitions built!")
 
     subtitle_style = (
-        "FontName=Arial,FontSize=9,PrimaryColour=&H00FFFFFF,"
+        "FontName=Arial,FontSize=11,PrimaryColour=&H00FFFFFF,"
         "OutlineColour=&H00000000,BackColour=&H80000000,"
-        "Bold=1,Outline=3,Shadow=2,Alignment=2,MarginV=80"
+        "Bold=1,Outline=3,Shadow=2,Alignment=2,MarginV=120"
     )
 
     has_music = music_path is not None and os.path.exists(music_path)
