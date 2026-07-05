@@ -36,6 +36,15 @@ DB_FILE     = "horror_log.db"
 os.makedirs(WORK_DIR, exist_ok=True)
 
 # ============================================================
+# EDGE TTS VOICE MAP
+# Male and female horror-appropriate voices
+# ============================================================
+EDGE_TTS_VOICES = {
+    "male":   "en-US-GuyNeural",
+    "female": "en-US-AriaNeural"
+}
+
+# ============================================================
 # FALLBACK
 # ============================================================
 FALLBACK = {
@@ -43,6 +52,7 @@ FALLBACK = {
     "caption": "He went up for ten minutes. He never came back the same. 👻",
     "hashtags": "#Horror #ScaryStories #GhostStories #Paranormal #Supernatural #HauntedPlace #TrueHorror #NightmareFuel #Creepy #Unexplained #DarkStories #HorrorShorts #StoryTime #Eerie #Thriller #SweetyStoryLab",
     "question": "Have you ever heard footsteps when nobody was there?",
+    "narrator_gender": "male",
     "scenes": [
         {
             "narration": "We moved into a new apartment last June. The neighbor warned us the moment we arrived. Nobody had lived on the third floor for years, she said, and nobody lasted more than a week when they tried. We laughed it off. The first week was quiet.",
@@ -122,6 +132,7 @@ Hashtags: (15-20 hashtags relevant to THIS story. Mix broad and niche.
   - Platform: #HorrorTok #HorrorShorts #ScaryTok #StoryTime #HorrorReels
   - Filipino: #HorrorPH #PinoyHorror #FilipinoPH (only if story has Filipino elements)
   Return as one line of hashtags, no explanations)
+NarratorGender: (male or female — based on the first-person narrator's gender in the story)
 Scene1Narration: (60-80 words, first person, full sentences, ENGLISH ONLY)
 Scene1Image: (cinematic dark horror scene, no people, no text, eerie atmosphere)
 Scene2Narration: (60-80 words, first person, full sentences, ENGLISH ONLY)
@@ -147,6 +158,7 @@ def parse_story(text):
         "title": "Night Terror",
         "caption": "Some things are better left unseen. 👻",
         "hashtags": "#Horror #ScaryStories #GhostStories #Paranormal #SweetyStoryLab",
+        "narrator_gender": "male",
         "scenes": [{"narration": "", "image_prompt": ""} for _ in range(3)],
         "question": "Have you ever experienced something you cannot explain?"
     }
@@ -162,6 +174,9 @@ def parse_story(text):
             result["caption"] = line.replace("Caption:", "").strip().strip('"')
         elif line.startswith("Hashtags:"):
             result["hashtags"] = line.replace("Hashtags:", "").strip()
+        elif line.startswith("NarratorGender:"):
+            gender = line.replace("NarratorGender:", "").strip().lower()
+            result["narrator_gender"] = "female" if "female" in gender else "male"
         elif line.startswith("Scene1Narration:"):
             result["scenes"][0]["narration"] = line.replace("Scene1Narration:", "").strip()
         elif line.startswith("Scene1Image:"):
@@ -182,7 +197,7 @@ def get_content():
     try:
         content = generate_story()
         if all(s["narration"] for s in content["scenes"]):
-            print(f"Story: {content['title']}")
+            print(f"Story: {content['title']} (narrator: {content['narrator_gender']})")
             return content
     except Exception as e:
         print(f"Groq failed: {e}")
@@ -191,8 +206,6 @@ def get_content():
 
 # ============================================================
 # STEP 2: GENERATE 3 HORROR IMAGES WITH POLLINATIONS.AI
-# ============================================================
-# Retries 3 times before giving up and using dark fallback.
 # ============================================================
 def generate_image(prompt, index):
     print(f"Generating image {index+1}/3...")
@@ -236,7 +249,13 @@ def generate_image(prompt, index):
 # ============================================================
 # STEP 3: GENERATE VOICE + SUBTITLES
 # ============================================================
-def generate_voice_elevenlabs(text):
+# Auto-detects narrator gender from story and picks
+# matching Edge TTS voice:
+#   Female narrator → en-US-AriaNeural
+#   Male narrator   → en-US-GuyNeural
+# ============================================================
+
+def generate_voice_elevenlabs(text, gender="male"):
     print("Trying ElevenLabs voice (emotional)...")
     try:
         voices_res = requests.get(
@@ -245,7 +264,11 @@ def generate_voice_elevenlabs(text):
             timeout=10
         )
         voices = voices_res.json().get("voices", [])
-        preferred = ["Daniel", "Adam", "Antoni", "Josh", "Arnold", "Thomas"]
+        # Pick voice based on gender
+        if gender == "female":
+            preferred = ["Rachel", "Domi", "Bella", "Elli", "Dorothy"]
+        else:
+            preferred = ["Daniel", "Adam", "Antoni", "Josh", "Arnold", "Thomas"]
         VOICE_ID = None
         for name in preferred:
             match = next((v for v in voices if v["name"] == name), None)
@@ -291,16 +314,17 @@ def generate_voice_elevenlabs(text):
         print(f"⚠️ ElevenLabs failed: {e} — falling back to Edge TTS")
         return False
 
-def generate_voice_edgetts(text):
-    print("Generating voice with Edge TTS (GuyNeural)...")
+def generate_voice_edgetts(text, gender="male"):
+    voice = EDGE_TTS_VOICES.get(gender, EDGE_TTS_VOICES["male"])
+    print(f"Generating voice with Edge TTS ({voice})...")
     result = subprocess.run(
-        ["edge-tts", "--voice", "en-US-GuyNeural", "--rate=-10%",
+        ["edge-tts", "--voice", voice, "--rate=-10%",
          "--text", text, "--write-media", VOICE_FILE, "--write-subtitles", VTT_FILE],
         capture_output=True, text=True, timeout=60
     )
     if result.returncode != 0:
         raise Exception(f"Edge TTS failed: {result.stderr}")
-    print("✅ Edge TTS voice generated!")
+    print(f"✅ Edge TTS voice generated! (gender: {gender})")
 
 def generate_srt_from_voice(text):
     probe = subprocess.run(
@@ -335,18 +359,18 @@ def generate_srt_from_voice(text):
         f.write("\n\n".join(srt_blocks))
     print(f"✅ SRT generated ({counter-1} blocks)")
 
-def generate_voice(scenes):
+def generate_voice(scenes, gender="male"):
     full_narration = " ".join(s["narration"] for s in scenes)
     clean = full_narration.replace("#", "").replace("👻", "").replace("...", ". ").strip()
     used_elevenlabs = False
     if ELEVENLABS_API_KEY:
-        used_elevenlabs = generate_voice_elevenlabs(clean)
+        used_elevenlabs = generate_voice_elevenlabs(clean, gender)
     if used_elevenlabs:
         generate_srt_from_voice(clean)
     else:
-        generate_voice_edgetts(clean)
+        generate_voice_edgetts(clean, gender)
         vtt_to_srt(VTT_FILE, SRT_FILE)
-    print(f"Voice ready! ({'ElevenLabs' if used_elevenlabs else 'Edge TTS'})")
+    print(f"Voice ready! ({'ElevenLabs' if used_elevenlabs else 'Edge TTS'} — {gender})")
     return VOICE_FILE, SRT_FILE
 
 def vtt_to_srt(vtt_path, srt_path):
@@ -378,10 +402,6 @@ def vtt_to_srt(vtt_path, srt_path):
 # ============================================================
 # STEP 3.5: BACKGROUND MUSIC
 # ============================================================
-# Uses local sounds/suspense.mp3 as background music.
-# Place any horror ambient MP3 in the sounds/ folder.
-# ============================================================
-
 def generate_music(title, scenes):
     if os.path.exists("sounds/suspense.mp3"):
         print("Using suspense.mp3 for background music")
@@ -672,9 +692,10 @@ def main():
         content = get_content()
         title   = content["title"]
         scenes  = content["scenes"]
+        gender  = content.get("narrator_gender", "male")
         caption = f"{content['caption']}\n\n{content['hashtags']}"
 
-        print(f"Title: {title}")
+        print(f"Title: {title} | Narrator: {gender}")
 
         image_paths = []
         for i, scene in enumerate(scenes):
@@ -694,7 +715,7 @@ def main():
             image_paths.append(path)
             time.sleep(2)
 
-        voice_path, srt_path = generate_voice(scenes)
+        voice_path, srt_path = generate_voice(scenes, gender)
 
         question   = content.get("question", "Have you ever experienced something you cannot explain?")
         music_path = generate_music(title, scenes)
