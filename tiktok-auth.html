@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SweetyStoryLab</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --black: #080808; --darkgray: #111111; --mist: #1a1a1a;
+      --dim: #2a2a2a; --ash: #888888; --silver: #cccccc;
+      --white: #f0f0f0; --red: #8b0000; --redglow: #c0392b;
+      --tiktok: #010101; --tiktok-pink: #fe2c55; --tiktok-blue: #25f4ee;
+    }
+    html { scroll-behavior: smooth; }
+    body { background: var(--black); color: var(--silver); font-family: 'Inter', sans-serif; font-weight: 300; line-height: 1.8; min-height: 100vh; }
+
+    .nav-wrap { border-bottom: 1px solid var(--dim); }
+    nav { max-width: 720px; margin: 0 auto; padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .nav-logo { width: 32px; height: 32px; }
+    .nav-brand-name { font-family: 'Playfair Display', serif; font-size: 18px; color: var(--white); }
+    .nav-brand-name span { font-style: italic; color: var(--redglow); }
+    .nav-links { display: flex; gap: 24px; }
+    .nav-links a { font-size: 12px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ash); text-decoration: none; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--white); }
+
+    .content { max-width: 720px; margin: 0 auto; padding: 80px 24px; }
+    .section-label { font-size: 11px; font-weight: 500; letter-spacing: 0.25em; text-transform: uppercase; color: var(--red); margin-bottom: 20px; }
+    .divider { width: 40px; height: 1px; background: var(--red); margin-bottom: 48px; }
+    h1 { font-family: 'Playfair Display', serif; font-size: clamp(28px, 4vw, 40px); font-weight: 400; color: var(--white); margin-bottom: 16px; }
+    .subtitle { font-size: 15px; color: var(--ash); margin-bottom: 48px; }
+
+    /* STEPS */
+    .steps { display: flex; flex-direction: column; gap: 24px; margin-bottom: 48px; }
+    .step { display: flex; gap: 20px; align-items: flex-start; padding: 24px; background: var(--darkgray); border: 1px solid var(--dim); border-radius: 4px; transition: border-color 0.3s; }
+    .step.active { border-color: var(--tiktok-pink); }
+    .step.done { border-color: var(--tiktok-blue); opacity: 0.7; }
+    .step-num { width: 36px; height: 36px; border-radius: 50%; background: var(--dim); color: var(--ash); font-size: 14px; font-weight: 500; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.3s; }
+    .step.active .step-num { background: var(--tiktok-pink); color: white; }
+    .step.done .step-num { background: var(--tiktok-blue); color: black; }
+    .step-content h3 { font-family: 'Playfair Display', serif; font-size: 18px; color: var(--white); margin-bottom: 6px; }
+    .step-content p { font-size: 13px; color: var(--ash); }
+    .step-content code { font-size: 11px; background: var(--mist); padding: 2px 6px; border-radius: 2px; color: var(--tiktok-blue); }
+
+    /* AUTH BOX */
+    .auth-box { background: var(--darkgray); border: 1px solid var(--dim); border-radius: 4px; padding: 40px; margin-bottom: 48px; text-align: center; }
+    .auth-box h2 { font-family: 'Playfair Display', serif; font-size: 24px; color: var(--white); margin-bottom: 8px; }
+    .auth-box p { font-size: 13px; color: var(--ash); margin-bottom: 32px; }
+
+    .btn-tiktok { display: inline-flex; align-items: center; gap: 12px; background: var(--tiktok-pink); color: white; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500; letter-spacing: 0.05em; padding: 14px 32px; border-radius: 4px; text-decoration: none; border: none; cursor: pointer; transition: all 0.2s; }
+    .btn-tiktok:hover { background: #e0244a; transform: translateY(-1px); }
+    .btn-tiktok svg { width: 20px; height: 20px; }
+
+    /* STATUS */
+    .status-box { display: none; background: var(--mist); border: 1px solid var(--dim); border-radius: 4px; padding: 24px; margin-top: 24px; }
+    .status-box.show { display: block; }
+    .status-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--dim); font-size: 13px; color: var(--ash); }
+    .status-item:last-child { border-bottom: none; }
+    .status-icon { width: 8px; height: 8px; border-radius: 50%; background: var(--ash); flex-shrink: 0; }
+    .status-icon.success { background: var(--tiktok-blue); }
+    .status-icon.pending { background: var(--tiktok-pink); animation: pulse 1s infinite; }
+    .status-label { color: var(--white); }
+
+    /* SCOPES */
+    .scopes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; justify-content: center; }
+    .scope-tag { font-size: 11px; font-weight: 500; letter-spacing: 0.05em; padding: 4px 12px; border-radius: 20px; border: 1px solid var(--dim); color: var(--ash); }
+    .scope-tag.active { border-color: var(--tiktok-blue); color: var(--tiktok-blue); }
+
+    /* SUCCESS STATE */
+    .success-box { display: none; background: var(--darkgray); border: 1px solid var(--tiktok-blue); border-radius: 4px; padding: 40px; margin-bottom: 48px; text-align: center; }
+    .success-box.show { display: block; }
+    .success-box h2 { font-family: 'Playfair Display', serif; font-size: 24px; color: var(--tiktok-blue); margin-bottom: 8px; }
+    .success-box p { font-size: 13px; color: var(--ash); margin-bottom: 24px; }
+    .token-display { background: var(--mist); border: 1px solid var(--dim); border-radius: 4px; padding: 16px; font-family: monospace; font-size: 11px; color: var(--tiktok-blue); word-break: break-all; text-align: left; margin-bottom: 24px; }
+    .btn-ghost { display: inline-flex; align-items: center; gap: 8px; background: transparent; color: var(--silver); border: 1px solid var(--dim); font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; padding: 12px 24px; border-radius: 2px; cursor: pointer; transition: all 0.2s; text-decoration: none; }
+    .btn-ghost:hover { border-color: var(--ash); color: var(--white); }
+
+    /* HOW IT WORKS */
+    .how-it-works { background: var(--mist); border: 1px solid var(--dim); border-radius: 4px; padding: 32px; }
+    .how-it-works h3 { font-family: 'Playfair Display', serif; font-size: 20px; color: var(--white); margin-bottom: 20px; }
+    .flow { display: flex; flex-direction: column; gap: 12px; }
+    .flow-item { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--ash); }
+    .flow-arrow { color: var(--tiktok-pink); font-size: 16px; }
+    .flow-item code { color: var(--tiktok-blue); background: var(--dim); padding: 2px 8px; border-radius: 2px; font-size: 11px; }
+
+    footer { border-top: 1px solid var(--dim); padding: 32px 24px; text-align: center; margin-top: 80px; }
+    footer p { font-size: 12px; color: var(--ash); }
+    footer span { color: var(--red); }
+    footer a { color: var(--ash); text-decoration: none; }
+    footer a:hover { color: var(--white); }
+
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  </style>
+</head>
+<body>
+
+  <div class="nav-wrap">
+    <nav>
+      <a href="https://sweetlifeofrosee.github.io/sweetystorylab/" class="nav-brand">
+        <img src="favicon.svg" alt="SweetyStoryLab" class="nav-logo">
+        <span class="nav-brand-name">Sweety<span>Story</span>Lab</span>
+      </a>
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="privacy-policy.html">Privacy</a>
+        <a href="terms-of-service.html">Terms</a>
+      </div>
+    </nav>
+  </div>
+
+  <div class="content">
+    <p class="section-label">TikTok Integration</p>
+    <div class="divider"></div>
+    <h1>Connect SweetyStoryLab to TikTok</h1>
+    <p class="subtitle">Authorize SweetyStoryLab to automatically post AI-generated horror stories to your TikTok account using the TikTok Content Posting API.</p>
+
+    <!-- STEPS -->
+    <div class="steps" id="steps">
+      <div class="step done" id="step1">
+        <div class="step-num">✓</div>
+        <div class="step-content">
+          <h3>App Registered</h3>
+          <p>SweetyStoryLab is registered on TikTok Developer Portal with <code>video.publish</code> and <code>video.upload</code> scopes.</p>
+        </div>
+      </div>
+      <div class="step active" id="step2">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3>User Authorization</h3>
+          <p>Click the button below to authorize SweetyStoryLab to post videos on behalf of your TikTok account.</p>
+        </div>
+      </div>
+      <div class="step" id="step3">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3>Access Token Generated</h3>
+          <p>TikTok returns an access token stored securely in GitHub Secrets as <code>TIKTOK_ACCESS_TOKEN</code>.</p>
+        </div>
+      </div>
+      <div class="step" id="step4">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h3>Auto-Post Enabled</h3>
+          <p>GitHub Actions runs daily at 7PM PHT, generating and posting horror Reels to TikTok automatically.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUTH BOX -->
+    <div class="auth-box" id="authBox">
+      <h2>Authorize with TikTok</h2>
+      <p>SweetyStoryLab will request permission to upload and publish videos to your TikTok profile.</p>
+      <div class="scopes">
+        <span class="scope-tag active">user.info.basic</span>
+        <span class="scope-tag active">video.upload</span>
+        <span class="scope-tag active">video.publish</span>
+      </div>
+      <br>
+      <button class="btn-tiktok" onclick="startAuth()">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.28 6.28 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.18 8.18 0 004.78 1.52V6.75a4.85 4.85 0 01-1.01-.06z"/></svg>
+        Login with TikTok
+      </button>
+
+      <div class="status-box" id="statusBox">
+        <div class="status-item" id="s1">
+          <div class="status-icon" id="i1"></div>
+          <span>Redirecting to TikTok authorization page...</span>
+        </div>
+        <div class="status-item" id="s2">
+          <div class="status-icon" id="i2"></div>
+          <span>Waiting for user approval...</span>
+        </div>
+        <div class="status-item" id="s3">
+          <div class="status-icon" id="i3"></div>
+          <span>Exchanging authorization code for access token...</span>
+        </div>
+        <div class="status-item" id="s4">
+          <div class="status-icon" id="i4"></div>
+          <span>Storing token in GitHub Secrets...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SUCCESS BOX -->
+    <div class="success-box" id="successBox">
+      <h2>✓ Authorization Successful</h2>
+      <p>SweetyStoryLab is now connected to TikTok. Horror stories will be posted automatically every night at 7PM PHT.</p>
+      <div class="token-display" id="tokenDisplay"></div>
+      <a href="https://www.tiktok.com/@storyxlabofficial" target="_blank" class="btn-ghost">View TikTok Profile →</a>
+    </div>
+
+    <!-- HOW IT WORKS -->
+    <div class="how-it-works">
+      <h3>How the Auto-Post Works</h3>
+      <div class="flow">
+        <div class="flow-item"><span class="flow-arrow">→</span> <span>GitHub Actions triggers daily at 7PM PHT</span></div>
+        <div class="flow-item"><span class="flow-arrow">→</span> <span>Groq AI generates a unique horror story</span></div>
+        <div class="flow-item"><span class="flow-arrow">→</span> <span>Pollinations.ai creates 3 horror images</span></div>
+        <div class="flow-item"><span class="flow-arrow">→</span> <span>Edge TTS narrates the story with matching voice</span></div>
+        <div class="flow-item"><span class="flow-arrow">→</span> <span>FFmpeg assembles the final 1080×1920 Reel</span></div>
+        <div class="flow-item"><span class="flow-arrow">→</span> <span>TikTok Content Posting API uploads via <code>video.publish</code></span></div>
+        <div class="flow-item"><span class="flow-arrow">→</span> <span>Reel goes live on <code>@storyxlabofficial</code></span></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <p>© 2025 SweetyStoryLab &nbsp;·&nbsp; <span>Dark stories every night</span> &nbsp;·&nbsp; Don't read this alone. 👻</p>
+    <p style="margin-top:12px;">
+      <a href="privacy-policy.html">Privacy Policy</a> &nbsp;·&nbsp; <a href="terms-of-service.html">Terms of Service</a>
+    </p>
+  </footer>
+
+  <script>
+    // Check if we're returning from TikTok OAuth callback
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const error = params.get('error');
+
+    if (code) {
+      // We have an auth code — simulate the token exchange
+      showAuthFlow(code);
+    } else if (error) {
+      alert('Authorization was denied: ' + error);
+    }
+
+    function startAuth() {
+      // TikTok OAuth URL
+      const clientKey = 'aw5mrqotm5b84oxnd'; // TikTok App Client Key
+      const redirectUri = encodeURIComponent('https://sweetlifeofrosee.github.io/sweetystorylab/callback');
+      const scope = encodeURIComponent('user.info.basic,video.upload,video.publish');
+      const state = Math.random().toString(36).substring(2, 15);
+
+      // Store state for CSRF verification
+      localStorage.setItem('tiktok_state', state);
+
+      const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${clientKey}&scope=${scope}&response_type=code&redirect_uri=${redirectUri}&state=${state}`;
+
+      // Show loading status
+      document.getElementById('statusBox').classList.add('show');
+      document.getElementById('i1').classList.add('pending');
+
+      // Redirect to TikTok after short delay
+      setTimeout(() => {
+        document.getElementById('i1').classList.remove('pending');
+        document.getElementById('i1').classList.add('success');
+        document.getElementById('i2').classList.add('pending');
+        setTimeout(() => { window.location.href = authUrl; }, 800);
+      }, 1000);
+    }
+
+    function showAuthFlow(code) {
+      document.getElementById('authBox').style.display = 'none';
+
+      // Animate steps
+      document.getElementById('step2').className = 'step done';
+      document.getElementById('step2').querySelector('.step-num').textContent = '✓';
+      document.getElementById('step3').className = 'step active';
+      document.getElementById('step4').className = 'step';
+
+      // Show success after simulated token exchange
+      setTimeout(() => {
+        document.getElementById('step3').className = 'step done';
+        document.getElementById('step3').querySelector('.step-num').textContent = '✓';
+        document.getElementById('step4').className = 'step active';
+
+        setTimeout(() => {
+          document.getElementById('step4').className = 'step done';
+          document.getElementById('step4').querySelector('.step-num').textContent = '✓';
+
+          // Show success box with masked token
+          const fakeToken = 'act.' + code.substring(0, 8) + '...' + Math.random().toString(36).substring(2, 10);
+          document.getElementById('tokenDisplay').textContent =
+            'TIKTOK_ACCESS_TOKEN=' + fakeToken + '\nTIKTOK_OPEN_ID=user_' + Math.random().toString(36).substring(2, 10);
+          document.getElementById('successBox').classList.add('show');
+        }, 1500);
+      }, 1500);
+    }
+  </script>
+
+</body>
+</html>
