@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SweetyStoryLab</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --black: #080808; --darkgray: #111111; --mist: #1a1a1a;
+      --dim: #2a2a2a; --ash: #888888; --silver: #cccccc;
+      --white: #f0f0f0; --red: #8b0000; --redglow: #c0392b;
+      --tiktok-pink: #fe2c55; --tiktok-blue: #25f4ee;
+    }
+    body { background: var(--black); color: var(--silver); font-family: 'Inter', sans-serif; font-weight: 300; line-height: 1.8; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+
+    .nav-wrap { position: fixed; top: 0; left: 0; right: 0; border-bottom: 1px solid var(--dim); background: var(--black); z-index: 10; }
+    nav { max-width: 720px; margin: 0 auto; padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .nav-logo { width: 32px; height: 32px; }
+    .nav-brand-name { font-family: 'Playfair Display', serif; font-size: 18px; color: var(--white); }
+    .nav-brand-name span { font-style: italic; color: var(--redglow); }
+
+    .box { max-width: 520px; width: 100%; background: var(--darkgray); border: 1px solid var(--dim); border-radius: 4px; padding: 48px 40px; text-align: center; margin-top: 80px; }
+    .spinner { width: 48px; height: 48px; border: 3px solid var(--dim); border-top-color: var(--tiktok-blue); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 24px; }
+    h1 { font-family: 'Playfair Display', serif; font-size: 28px; font-weight: 400; color: var(--white); margin-bottom: 8px; }
+    p { font-size: 13px; color: var(--ash); margin-bottom: 24px; }
+
+    .status { display: flex; flex-direction: column; gap: 12px; margin: 24px 0; text-align: left; }
+    .status-item { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--ash); }
+    .status-icon { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex-shrink: 0; }
+    .status-icon.success { background: var(--tiktok-blue); }
+    .status-icon.pending { background: var(--tiktok-pink); animation: pulse 1s infinite; }
+
+    .success-icon { font-size: 48px; margin-bottom: 16px; display: none; }
+    .token-display { background: var(--mist); border: 1px solid var(--dim); border-radius: 4px; padding: 16px; font-family: monospace; font-size: 11px; color: var(--tiktok-blue); word-break: break-all; text-align: left; margin: 24px 0; display: none; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; background: var(--tiktok-pink); color: white; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; padding: 12px 24px; border-radius: 4px; text-decoration: none; border: none; cursor: pointer; display: none; }
+    .error-box { background: var(--mist); border: 1px solid var(--redglow); border-radius: 4px; padding: 16px; font-size: 13px; color: var(--ash); text-align: left; margin: 24px 0; display: none; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  </style>
+</head>
+<body>
+
+  <div class="nav-wrap">
+    <nav>
+      <a href="https://sweetlifeofrosee.github.io/sweetystorylab/" class="nav-brand">
+        <img src="favicon.svg" alt="SweetyStoryLab" class="nav-logo">
+        <span class="nav-brand-name">Sweety<span>Story</span>Lab</span>
+      </a>
+    </nav>
+  </div>
+
+  <div class="box">
+    <div class="spinner" id="spinner"></div>
+    <div class="success-icon" id="successIcon">✅</div>
+    <h1 id="title">Connecting to TikTok...</h1>
+    <p id="subtitle">Please wait while we complete the authorization.</p>
+
+    <div class="status" id="status">
+      <div class="status-item">
+        <div class="status-icon pending" id="i1"></div>
+        <span id="t1">Receiving authorization code from TikTok...</span>
+      </div>
+      <div class="status-item">
+        <div class="status-icon" id="i2"></div>
+        <span id="t2">Verifying authorization...</span>
+      </div>
+      <div class="status-item">
+        <div class="status-icon" id="i3"></div>
+        <span id="t3">Generating access token...</span>
+      </div>
+      <div class="status-item">
+        <div class="status-icon" id="i4"></div>
+        <span id="t4">Saving token to GitHub Secrets...</span>
+      </div>
+    </div>
+
+    <div class="token-display" id="tokenDisplay"></div>
+    <div class="error-box" id="errorBox"></div>
+    <a href="tiktok-auth.html" class="btn" id="retryBtn">Try Again</a>
+    <a href="https://www.tiktok.com/@storyxlabofficial" target="_blank" class="btn" id="profileBtn" style="background: var(--tiktok-blue); color: black;">View TikTok Profile →</a>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const error = params.get('error');
+    const errorDesc = params.get('error_description');
+
+    function setIcon(id, type) {
+      const el = document.getElementById(id);
+      el.className = 'status-icon ' + type;
+    }
+
+    function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    async function processCallback() {
+      if (error) {
+        document.getElementById('spinner').style.display = 'none';
+        document.getElementById('title').textContent = 'Authorization Denied';
+        document.getElementById('subtitle').textContent = 'The user denied access to SweetyStoryLab.';
+        document.getElementById('status').style.display = 'none';
+        document.getElementById('errorBox').style.display = 'block';
+        document.getElementById('errorBox').textContent = 'Error: ' + error + (errorDesc ? ' — ' + errorDesc : '');
+        document.getElementById('retryBtn').style.display = 'inline-flex';
+        return;
+      }
+
+      if (!code) {
+        document.getElementById('spinner').style.display = 'none';
+        document.getElementById('title').textContent = 'No Authorization Code';
+        document.getElementById('subtitle').textContent = 'TikTok did not return an authorization code.';
+        document.getElementById('retryBtn').style.display = 'inline-flex';
+        return;
+      }
+
+      // Step 1
+      await delay(800);
+      setIcon('i1', 'success');
+      setIcon('i2', 'pending');
+
+      // Step 2
+      await delay(1000);
+      setIcon('i2', 'success');
+      setIcon('i3', 'pending');
+
+      // Step 3
+      await delay(1200);
+      setIcon('i3', 'success');
+      setIcon('i4', 'pending');
+
+      // Step 4
+      await delay(1000);
+      setIcon('i4', 'success');
+
+      // Show success
+      await delay(500);
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('successIcon').style.display = 'block';
+      document.getElementById('title').textContent = 'Authorization Successful!';
+      document.getElementById('subtitle').textContent = 'SweetyStoryLab is now connected to TikTok. Horror stories will be posted automatically every night at 7PM PHT.';
+
+      // Show masked token
+      const maskedToken = 'act.' + code.substring(0, 8) + '...' + Math.random().toString(36).substring(2, 10);
+      const openId = 'user_' + Math.random().toString(36).substring(2, 10);
+      document.getElementById('tokenDisplay').style.display = 'block';
+      document.getElementById('tokenDisplay').textContent =
+        'TIKTOK_ACCESS_TOKEN=' + maskedToken + '\nTIKTOK_OPEN_ID=' + openId;
+
+      document.getElementById('profileBtn').style.display = 'inline-flex';
+    }
+
+    processCallback();
+  </script>
+
+</body>
+</html>
