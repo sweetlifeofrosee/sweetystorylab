@@ -1,0 +1,71 @@
+brand:
+  id: horror_lab
+  name: "Horror Lab"
+  emoji: "👻"
+  parent: sweetystorylab
+
+content:
+  system_prompt_file: prompts/system_prompt.txt
+  user_prompt_file: prompts/user_prompt.txt
+  parser_module: brands.horror_lab.parser.HorrorLabParser
+  fallback_provider_module: brands.horror_lab.fallback.HorrorLabFallbackProvider
+  segment_template:
+    - narration_scene
+    - narration_scene
+    - narration_scene
+    - question_slide
+  # NOTE: hashtag_base removed (architecture review finding) -- it was
+  # loaded but never consumed anywhere. Hashtag generation is entirely
+  # owned by the prompt + parser, not this field.
+
+# Required -- no core-level default exists anymore (architecture
+# review finding: a prior version of the loader silently defaulted to
+# these exact values, which masked missing config rather than failing).
+llm:
+  model: llama-3.3-70b-versatile
+  temperature: 0.95
+  max_tokens: 1200
+
+voice:
+  default_profile: male
+  profiles:
+    male:
+      edge_tts_voice: en-US-GuyNeural
+      elevenlabs_preferred: ["Daniel", "Adam", "Antoni", "Josh", "Arnold", "Thomas"]
+    female:
+      edge_tts_voice: en-US-AriaNeural
+      elevenlabs_preferred: ["Rachel", "Domi", "Bella", "Elli", "Dorothy"]
+  # Story.voice_profile ("male"/"female", set by the parser from the
+  # LLM's NarratorGender field) is looked up here. Core never
+  # interprets "male"/"female" -- it's just this brand's chosen key
+  # names. Another brand could use "detective"/"witness" instead.
+
+branding:
+  watermark_text: "SweetyStoryLab"
+  font: assets/fonts/Lora-Italic.ttf
+  # NOTE: font is NOT a committed repo asset -- it's downloaded fresh
+  # every run by the GitHub Actions workflow (see post.yml), straight
+  # into brands/horror_lab/assets/. This URL is recorded here purely
+  # for documentation, so whoever writes a new brand's workflow knows
+  # what to fetch. The download mechanism itself stays in the
+  # workflow file, same as scheduling -- not core/pipeline code.
+  font_source_url: "https://github.com/google/fonts/raw/main/ofl/lora/Lora%5Bwght%5D.ttf"
+
+music:
+  local_file: assets/sounds/suspense.mp3
+
+image:
+  style_suffix: "dark cinematic horror, eerie atmosphere, dramatic lighting, photorealistic, high quality, no text, no watermark, no faces"
+  fallback_dir: "images"
+  fallback_color: [5, 5, 10]  # matches real post.py's dark fallback frame -- Horror Lab-specific, now explicit brand config instead of a core default
+
+# CORRECTED: real repo's actual env var names, matching your existing
+# GitHub secrets exactly -- my first pass invented HORROR_FB_PAGE_ID /
+# HORROR_FB_PAGE_TOKEN, which don't exist in your repo. Using the real
+# names means zero changes needed to your current GitHub secrets.
+facebook:
+  page_id_env: FB_PAGE_ID
+  access_token_env: FB_PAGE_ACCESS_TOKEN
+
+schedule:
+  times_pht: []   # scheduling stays external, in GitHub Actions cron
