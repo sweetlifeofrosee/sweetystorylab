@@ -5,6 +5,9 @@ on:
     - cron: '0 23 * * *'  # 7AM PHT daily (23:00 UTC = 7AM UTC+8)
   workflow_dispatch:        # Manual trigger for testing
 
+permissions:
+  contents: write
+  
 jobs:
   post:
     runs-on: ubuntu-latest
@@ -41,6 +44,18 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
         run: python -m core.pipeline.cli --brand mystery_lab --db-path mystery_log.db
+
+      - name: Persist used_subjects.json
+        run: |
+          if [ -n "$(git status --porcelain brands/mystery_lab/used_subjects.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add brands/mystery_lab/used_subjects.json
+            git commit -m "Update mystery_lab used_subjects.json [skip ci]"
+            git push
+          else
+            echo "No changes to used_subjects.json, skipping commit."
+          fi
 
       - name: Save log
         if: always()
