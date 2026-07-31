@@ -9,15 +9,78 @@ whichever segments actually have `duration_mode="audio_length"`, and
 uses each segment's own `duration_seconds` for fixed-duration segments
 (e.g. question_slide).
 
-This generalization is REQUIRED for the assembler to work with any
-segment_template at all -- it's not a stylistic choice, and for
-Horror Lab's exact 3-scene + 1 fixed-question shape it reproduces
-identical timing (total_duration / 3 per scene, 4s fixed for the
-question slide) to the original.
+SUBTITLE STYLING (Direction A + C, generic across both brands):
+  - Lighter recipe: thinner outline, lighter shadow, no bold, slightly
+    larger font, more margin from the bottom edge -- replacing the
+    previous heavy "meme subtitle" look (Outline=3, Shadow=2, Bold=1).
+  - A soft, restrained bottom gradient (generated once per video, pure
+    black fading in from transparent) sits behind the caption text
+    instead of relying on outline weight for legibility -- captions
+    read as emerging from the image, not sitting inside a container.
+  - This required unifying the video processing into a single
+    -filter_complex (overlay the gradient, then burn subtitles on top)
+    instead of the previous -vf/-filter_complex mix -- an internal
+    robustness improvement, not a public interface change; build_video()'s
+    signature and behavior are otherwise unchanged.
 """
 import json
 import os
 import subprocess
+from PIL import Image, ImageDraw
+
+CANVAS_WIDTH = 1080
+CANVAS_HEIGHT = 1920
+
+SUBTITLE_GRADIENT_HEIGHT = 460     # how tall the soft bottom darkening region is
+SUBTITLE_GRADIENT_MAX_ALPHA = 190  # darkest point, at the very bottom edge
+SUBTITLE_GRADIENT_EASE = 1.6       # >1 keeps the top of the gradient nearly invisible,
+                                    # concentrating the darkening near the bottom edge
+
+# EMPIRICAL CALIBRATION -- not a documented pixel mapping.
+#
+# FFmpeg's `subtitles` filter, when given a plain .srt, converts it to
+# ASS internally using its own default script resolution (commonly
+# 384x288 in libass), NOT the actual output video resolution. This
+# means MarginV in force_style is NOT literal pixels -- it's scaled by
+# (actual_output_height / assumed_script_height).
+#
+# We tried the documented fix for this (the `original_size` filter
+# option) and measured, by rendering real frames and locating the
+# actual subtitle pixel position, that it had ZERO effect on this
+# scaling behavior for auto-converted .srt input -- `original_size` is
+# documented as an aspect-ratio/font-scaling aid, not script-resolution
+# override, and doesn't apply to this code path.
+#
+# Rather than build real .ass-file generation/rewriting infrastructure
+# to force a literal PlayResY, we measured the actual scale factor
+# directly: MarginV=110 produced text 749px from the bottom edge of a
+# real 1920px-tall rendered frame; MarginV=120 produced 816px. Both
+# measurements give the same ratio, ~6.8x. If a future FFmpeg/libass
+# version changes this default, recalibrate this one constant by
+# rendering a test frame and measuring the actual text position the
+# same way (see the verification method used when this was derived).
+LIBASS_MARGINV_SCALE_FACTOR = 6.8
+
+# Desired literal on-screen distance (in real output pixels) from the
+# bottom edge to the subtitle text -- chosen to sit well within the
+# gradient zone (y=1460-1920) and clear of the watermark (y~1880).
+SUBTITLE_TARGET_MARGIN_PX = 150
+SUBTITLE_MARGIN_V = round(SUBTITLE_TARGET_MARGIN_PX / LIBASS_MARGINV_SCALE_FACTOR)
+
+
+def _generate_subtitle_gradient(work_dir: str) -> str:
+    """A soft, generic bottom gradient (transparent -> darkened black)
+    that supports subtitle legibility without a visible panel/box.
+    Same treatment for every brand -- purely tonal, no brand styling."""
+    grad = Image.new("RGBA", (CANVAS_WIDTH, SUBTITLE_GRADIENT_HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(grad)
+    for y in range(SUBTITLE_GRADIENT_HEIGHT):
+        progress = y / SUBTITLE_GRADIENT_HEIGHT
+        alpha = int((progress ** SUBTITLE_GRADIENT_EASE) * SUBTITLE_GRADIENT_MAX_ALPHA)
+        draw.line([(0, y), (CANVAS_WIDTH, y)], fill=(0, 0, 0, alpha))
+    path = f"{work_dir}/subtitle_gradient.png"
+    grad.save(path, "PNG")
+    return path
 
 
 def build_video(rendered_segments, voice_path: str, srt_path: str,
@@ -117,32 +180,44 @@ def build_video(rendered_segments, voice_path: str, srt_path: str,
                 "-r", "30", temp_video,
             ], check=True, capture_output=True)
 
+    gradient_path = _generate_subtitle_gradient(work_dir)
+    overlay_y = CANVAS_HEIGHT - SUBTITLE_GRADIENT_HEIGHT
+    video_duration = total_duration + fixed_total  # matches padded_voice's actual length
+
+    # Direction A: lighter subtitle recipe -- thinner outline, lighter
+    # shadow, no bold, slightly larger font, more breathing room from
+    # the bottom edge. Legibility now comes from the soft gradient
+    # (Direction C) instead of a heavy outline.
     subtitle_style = (
         "FontName=Arial,"
-        "FontSize=9,"
+        "FontSize=11,"
         "PrimaryColour=&H00FFFFFF,"
         "OutlineColour=&H00000000,"
-        "BackColour=&H80000000,"
-        "Bold=1,"
-        "Outline=3,"
-        "Shadow=2,"
+        "BackColour=&H60000000,"
+        "Bold=0,"
+        "Outline=1,"
+        "Shadow=1,"
         "Alignment=2,"
-        "MarginV=80"
+        f"MarginV={SUBTITLE_MARGIN_V}"
     )
 
     has_music = music_path is not None and os.path.exists(music_path)
     if has_music:
+        filter_complex = (
+            f"[0:v][1:v]overlay=0:{overlay_y}[bgv];"
+            f"[bgv]subtitles={os.path.basename(srt_path)}:force_style='{subtitle_style}'[vout];"
+            f"[2:a][3:a]amix=inputs=2:weights=1 0.15:duration=first:normalize=0[aout]"
+        )
         result = subprocess.run([
             "ffmpeg", "-y",
             "-i", temp_video,
+            "-loop", "1", "-t", str(video_duration), "-i", gradient_path,
             "-i", padded_voice,
             "-stream_loop", "-1", "-i", music_path,
-            "-c:v", "libx264",
-            "-vf", f"subtitles={os.path.basename(srt_path)}:force_style='{subtitle_style}'",
-            "-filter_complex",
-            "[1:a][2:a]amix=inputs=2:weights=1 0.15:duration=first:normalize=0[aout]",
-            "-map", "0:v",
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
             "-map", "[aout]",
+            "-c:v", "libx264",
             "-c:a", "aac", "-b:a", "192k",
             "-pix_fmt", "yuv420p",
             "-shortest",
@@ -150,12 +225,19 @@ def build_video(rendered_segments, voice_path: str, srt_path: str,
             output_path,
         ], capture_output=True, text=True, timeout=180, cwd=work_dir)
     else:
+        filter_complex = (
+            f"[0:v][1:v]overlay=0:{overlay_y}[bgv];"
+            f"[bgv]subtitles={os.path.basename(srt_path)}:force_style='{subtitle_style}'[vout]"
+        )
         result = subprocess.run([
             "ffmpeg", "-y",
             "-i", temp_video,
+            "-loop", "1", "-t", str(video_duration), "-i", gradient_path,
             "-i", padded_voice,
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            "-map", "2:a",
             "-c:v", "libx264",
-            "-vf", f"subtitles={os.path.basename(srt_path)}:force_style='{subtitle_style}'",
             "-c:a", "aac", "-b:a", "192k",
             "-pix_fmt", "yuv420p",
             "-shortest",

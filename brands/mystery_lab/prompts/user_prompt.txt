@@ -1,0 +1,71 @@
+Before writing, think like the producer of a National Geographic-style documentary series planning an entire season, not a single episode. Deliberately choose FOUR things internally before selecting your specific story, in this order:
+
+1. Category — from the list below. Do not default to the same category repeatedly.
+2. Subject — the specific civilization, culture, artifact, site, or figure. Do not default to the same subject repeatedly.
+3. Era — the specific time period. Do not default to the same era repeatedly.
+4. Region — the specific part of the world. Do not default to the same region repeatedly.
+
+Categories:
+- Lost Cities
+- Ancient Civilizations
+- Archaeological Discoveries
+- Forgotten Empires
+- Ancient Technology
+- Mysterious Artifacts
+- Ancient Manuscripts
+- Sacred Sites
+- Unexplained Historical Events
+- Historical Figures
+- Unsolved Archaeological Mysteries
+- Strange Ancient Engineering
+- Ancient Religions & Rituals
+- Maritime Mysteries
+- Legendary Places
+
+Lost Cities is only ONE possible category among many equally compelling ones — it must not be treated as the default or fallback choice.
+
+Actively avoid defaulting to over-used, "canonical" mysteries — subjects like the Indus Valley Civilization, Atlantis, El Dorado, the Bermuda Triangle, Stonehenge, or the Nazca Lines are real and valid, but they are the first thing most people already think of, and are also the choices this model tends to over-select. Deliberately reach further: consider a wider range of specific civilizations, sites, and figures across every populated continent and era before settling on one, and prefer a less commonly-covered subject unless a canonical one is genuinely the best fit for the category you chose.
+
+If you are generating multiple stories in the same session, treat each one as a genuinely different episode: do not repeat the same civilization, subject, era, region, or category as a previous story in this run.
+
+Then write a complete 3-scene documentary story about it. Write in third person, as a narrator describing real, documented history. Each scene is 60-80 words. Use clear, concrete sentences built from specific detail: names, dates, locations, and documented facts.
+
+Scene 1 = introduce the mystery: what happened, when, and where, based on the historical record
+Scene 2 = what is documented and generally agreed upon, and where the evidence becomes uncertain or disputed
+Scene 3 = the competing explanations or theories that have been proposed, stated clearly as theory, not fact
+
+CRITICAL RULES:
+- Everything in ENGLISH ONLY.
+- Third person only — never first person, never framed as a personal experience.
+- The title must be unique to this specific story and reflect the chosen topic category. Do not reuse or lightly rephrase generic patterns like "Lost City Secrets," "Lost City Mystery," "Hidden Lost City," or "Forgotten City" — these are overused and must not appear unless Lost Cities is genuinely the chosen category AND the specific title is distinctly tied to that story's real details (a specific place, culture, or artifact name), not a generic label.
+- Clearly separate documented fact from theory using language like "historians agree," "researchers have proposed," or "one theory suggests." Never state a theory as though it were confirmed.
+- If a claim is disputed or weakly supported, say so plainly.
+- Reach for wonder-driven language ("astonishing," "remarkable," "still unexplained") — never horror-coded language ("chilling," "terrifying," "haunting"), even if the subject is unsettling.
+- The story must end on a genuine open question, not a twist or resolution. Apply this test before finishing: does this make the audience more curious, or merely more convinced? If more convinced, rewrite it.
+- Hashtags must be relevant to THIS specific story — not generic every time.
+
+Output ONLY this exact format, nothing else:
+
+PrimarySubject: (the specific civilization, culture, artifact, site, or figure this story is about, as a short canonical name only -- 2-6 words, a proper name, NOT a full sentence or creative description. Examples: "Nazca Lines", "Antikythera Mechanism", "Voynich Manuscript", "Great Zimbabwe". This must precisely and consistently name the one real subject the story covers.)
+Title: (max 5 words, evocative but not sensational, English only)
+Caption: (1 line, max 15 words, curiosity-driven, add 📜, English only)
+Hashtags: (15-20 hashtags relevant to THIS story. Mix broad and niche.
+Always include: #MysteryLab #HistoryStillHasSecrets
+Pick relevant ones from these categories based on story content:
+- Broad: #UnsolvedMysteries #HistoricalMystery #Unexplained #HiddenHistory #ForgottenHistory
+- Category: #UnsolvedHistory #StrangeArtifacts #LostHistory #HistoricalEnigma #UnexplainedPhenomena
+- Style: #TrueHistory #RealMystery #HistoryFacts #DidYouKnow #StillUnsolved #HistoryLovers
+- Platform: #MysteryShorts #HistoryShorts #StoryTime #MysteryReels #EduTok
+Return as one line of hashtags, no explanations)
+NarratorGender: (male or female — narrator voice for this story)
+
+Scene1Narration: (60-80 words, third person, documentary tone, ENGLISH ONLY)
+Scene1Image: (muted documentary photography, archival tone, desaturated color, no people, no text)
+
+Scene2Narration: (60-80 words, third person, distinguishes fact from uncertainty, ENGLISH ONLY)
+Scene2Image: (muted documentary photography, archival tone, desaturated color, no people, no text)
+
+Scene3Narration: (60-80 words, third person, presents theories clearly as theory, ENGLISH ONLY)
+Scene3Image: (muted documentary photography, archival tone, desaturated color, no people, no text, evocative)
+
+Question: (1 open, wonder-driven question for viewers. Maximum 8 words, hard maximum 10. Target approximately 45-55 characters. One sentence only. Must end with a question mark. No commas. No compound clauses. Create curiosity rather than explain. Examples: "Could the truth still be hiding somewhere nearby?" "What secrets remain hidden after all this time?" "Could this mystery still be waiting somewhere?")

@@ -7,7 +7,13 @@ run_brand(), translate the outcome into a process exit code. No
 brand-specific logic, no business logic, no scheduling logic -- all
 scheduling stays in GitHub Actions workflow files, as agreed.
 
-Exit codes (for GitHub Actions to branch on):
+--count N is a developer/testing convenience (see run_brand_batch in
+run.py): generates N independent stories, never publishes, saves each
+story's full output to its own numbered folder under output/. Omit it
+entirely and behavior is identical to before this flag existed --
+single story, normal publish-or-dry-run path, same exit codes.
+
+Exit codes (for GitHub Actions to branch on), unchanged from before:
   0 = pipeline completed and either published successfully or
       completed a valid dry run (expected for brands without a live
       Facebook Page/token yet -- not a failure).
@@ -18,11 +24,13 @@ Exit codes (for GitHub Actions to branch on):
       not reach Facebook. Distinguished from exit 1 so GitHub Actions
       logs/alerts can tell "nothing was produced" apart from
       "something was produced but publishing failed."
+--count mode always exits 0 or 1 (crash) -- there's no publish step
+to fail, by design.
 """
 import argparse
 import sys
 
-from .run import run_brand
+from .run import run_brand, run_brand_batch
 
 
 def main(argv=None) -> int:
@@ -42,7 +50,25 @@ def main(argv=None) -> int:
         "--db-path", default="posts.db",
         help="Path to the SQLite log store (default: posts.db)",
     )
+    parser.add_argument(
+        "--count", type=int, default=None,
+        help="Developer convenience: generate N stories, never publish, "
+             "save each to its own numbered folder under output/. "
+             "Omit for normal single-story behavior (unchanged).",
+    )
     args = parser.parse_args(argv)
+
+    if args.count is not None:
+        try:
+            run_brand_batch(
+                brand_id=args.brand,
+                count=args.count,
+                brands_root=args.brands_root,
+            )
+        except Exception as e:
+            print(f"[{args.brand}] BATCH GENERATION FAILED: {e}", file=sys.stderr)
+            return 1
+        return 0
 
     try:
         result = run_brand(

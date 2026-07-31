@@ -39,6 +39,9 @@ class BrandConfig:
     user_prompt_file: str
     parser_module: str  # dotted path to the brand's StoryParser implementation
     fallback_provider_module: str  # dotted path to the brand's FallbackProvider
+    dedup_module: Optional[str]    # OPTIONAL -- dotted path to a brand's subject
+                                    # deduplication checker. None means no dedup
+                                    # (e.g. Horror Lab today) -- not a required field.
     segment_template: list
 
     voice_profiles: dict          # profile_name -> {edge_tts_voice, elevenlabs_preferred}
@@ -52,6 +55,8 @@ class BrandConfig:
     image_style_suffix: str
     image_fallback_dir: Optional[str]
     image_fallback_color: tuple
+    question_max_font_size: int
+    question_text_color: tuple
 
     watermark_text: str
     font_file: str
@@ -145,6 +150,7 @@ def load_brand_config(brand_dir) -> BrandConfig:
         user_prompt_file=content["user_prompt_file"],
         parser_module=content["parser_module"],
         fallback_provider_module=content["fallback_provider_module"],
+        dedup_module=content.get("dedup_module"),  # optional, no default value needed
         segment_template=content["segment_template"],
         voice_profiles=voice_profiles,
         voice_default_profile=voice_default_profile,
@@ -155,6 +161,15 @@ def load_brand_config(brand_dir) -> BrandConfig:
         image_style_suffix=image.get("style_suffix", ""),
         image_fallback_dir=image.get("fallback_dir"),  # None -> fallback image disabled
         image_fallback_color=tuple(image.get("fallback_color", [40, 40, 40])),  # neutral gray, not horror-dark
+        # Brand-neutral default (117 -- the value already tuned generically
+        # for both brands). A brand overrides this in its own config.yaml
+        # to adjust the question slide's visual weight without touching
+        # the shared renderer or affecting any other brand.
+        question_max_font_size=raw.get("question", {}).get("max_font_size", 117),
+        # Brand-neutral default (white). Mystery Lab overrides to its
+        # warm gold; Horror Lab keeps white explicitly. Same pattern as
+        # question_max_font_size -- config value, not a code branch.
+        question_text_color=tuple(raw.get("question", {}).get("text_color", [255, 255, 255])),
         watermark_text=branding.get("watermark_text", brand["name"]),
         font_file=branding["font"],
         schedule_times_pht=schedule.get("times_pht", []),

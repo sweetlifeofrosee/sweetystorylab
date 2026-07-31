@@ -1,45 +1,119 @@
 """
 core/renderers/question_slide.py
 
-Direct port of the original post.py `build_question_frame()`.
+The documentary's closing frame -- designed as an evolution of
+narration_scene.py's editorial language, not a separate template.
+Shares its wrap/fit algorithm (core/renderers/text_layout.py), its
+exact divider element, and its typography/shadow technique. What
+makes this frame the emotional climax is emphasis, not a different
+layout system:
+  - No top brand mark, no scene dots -- both are narration-only
+    bookkeeping/identity elements this frame correctly omits, exactly
+    as narration_scene.py has neither a "closing" treatment.
+  - The question gets a higher font-size ceiling than narration titles
+    (more uncontested vertical room, and it's the last thing the
+    viewer reads) and is the only gold-colored text in the video.
+  - The divider below the question is the SAME element narration
+    frames use above their scene dots (identical color/thickness/
+    span) -- a deliberate visual callback, not a new motif.
+  - Bottom-anchored composition: the question block sits a fixed gap
+    above the divider, same spacing philosophy as narration_scene.py's
+    title/divider relationship.
+
 Genre-neutral: works for a horror comment-bait question exactly as
-well as a mystery-archive closing question, since the text itself is
-brand/prompt content, not renderer logic.
+well as a documentary closing question -- the text itself is brand/
+prompt content, not renderer logic.
 """
-import textwrap
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from .text_layout import fit_text, draw_archival_divider
+
+CANVAS_WIDTH = 1080
+CANVAS_HEIGHT = 1920
+
+QUESTION_MAX_TEXT_WIDTH = 920
+QUESTION_STAGE_TOP = 450         # top of the region the whole group can occupy (moved up 50px)
+QUESTION_STAGE_BOTTOM = 1650     # bottom of that region (moved up 50px, same stage height)
+QUESTION_GROUP_GAP = 40          # gap between the bottom of the question block and the divider
+DIVIDER_THICKNESS = 3
+
+QUESTION_MAX_FONT_SIZE = 117     # brand-neutral DEFAULT ceiling (used when RenderContext
+                                  # doesn't supply question_max_font_size). Brands override
+                                  # via config.yaml's question.max_font_size -- see run.py.
+                                  # ceiling (question remains the most dominant text), but
+                                  # ~11% smaller for a less cramped, more "luxurious" feel
+QUESTION_MIN_FONT_SIZE = 48
+QUESTION_FONT_SIZE_STEP = 4
+QUESTION_MAX_LINES = 3
+QUESTION_LINE_SPACING = 1.15
+
+QUESTION_GOLD = (198, 156, 84)   # brand-neutral DEFAULT (used when RenderContext doesn't
+                                  # supply question_text_color). Brands override via
+                                  # config.yaml's question.text_color -- see run.py.
 
 
 def render(segment, ctx) -> str:
     try:
         img = Image.open(ctx.image_path).convert("RGB")
-        bg = img.resize((1080, 1920), Image.LANCZOS)
-        bg = bg.filter(__import__("PIL.ImageFilter", fromlist=["GaussianBlur"]).GaussianBlur(radius=30))
-        darkener = Image.new("RGB", (1080, 1920), (0, 0, 0))
-        canvas = Image.blend(bg, darkener, 0.80)
+        bg = img.resize((CANVAS_WIDTH, CANVAS_HEIGHT), Image.LANCZOS)
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=30))
+        darkener = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), (0, 0, 0))
+        canvas = Image.blend(bg, darkener, 0.65)
     except Exception:
-        canvas = Image.new("RGB", (1080, 1920), (0, 0, 0))
+        canvas = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), (0, 0, 0))
 
     draw = ImageDraw.Draw(canvas)
     try:
-        font_question = ImageFont.truetype(ctx.font_path, 52)
         font_brand = ImageFont.truetype(ctx.font_path, 26)
     except Exception:
-        font_question = font_brand = ImageFont.load_default()
+        font_brand = ImageFont.load_default()
 
-    wrapped = textwrap.wrap(segment.text, width=22)
-    line_height = 72
-    total_height = len(wrapped) * line_height
-    start_y = 960 - total_height // 2
+    stage_height = QUESTION_STAGE_BOTTOM - QUESTION_STAGE_TOP
+    max_block_height = stage_height - QUESTION_GROUP_GAP - DIVIDER_THICKNESS
+    # Brand-overridable ceiling: falls back to the module default if the
+    # caller doesn't provide one via RenderContext (e.g. direct/isolated
+    # renderer tests). No brand awareness lives in this file -- it's an
+    # opaque value forwarded from config, same pattern as font_path etc.
+    max_size = getattr(ctx, "question_max_font_size", None) or QUESTION_MAX_FONT_SIZE
+    lines, font_question, line_height = fit_text(
+        draw, segment.text, ctx.font_path,
+        max_width=QUESTION_MAX_TEXT_WIDTH, max_block_height=max_block_height,
+        min_size=QUESTION_MIN_FONT_SIZE, max_size=max_size,
+        size_step=QUESTION_FONT_SIZE_STEP, max_lines=QUESTION_MAX_LINES,
+        line_spacing=QUESTION_LINE_SPACING,
+    )
 
-    for i, line in enumerate(wrapped):
-        y = start_y + (i * line_height)
-        for offset in [(3, 3), (2, 2), (1, 1)]:
-            draw.text((540 + offset[0], y + offset[1]), line, font=font_question,
-                       fill=(0, 0, 0, 180), anchor="mm")
-        draw.text((540, y), line, font=font_question, fill=(255, 255, 255, 255), anchor="mm")
+    # Center the WHOLE group (question block + gap + divider) as one
+    # unit within the stage region, rather than bottom-anchoring to a
+    # fixed divider position. Narration's hero region is close in
+    # scale to its text, so bottom-anchoring there only ever leaves a
+    # small gap; this frame's stage is much larger than any realistic
+    # question, so bottom-anchoring left a large, unintended empty gap
+    # above the text instead. Centering the group fixes that while
+    # keeping the same "cohesive group, not independent elements"
+    # philosophy.
+    block_height = line_height * len(lines)
+    group_height = block_height + QUESTION_GROUP_GAP + DIVIDER_THICKNESS
+    group_top = QUESTION_STAGE_TOP + max(0, (stage_height - group_height) / 2)
 
-    draw.text((542, 1882), ctx.watermark_text, font=font_brand, fill=(150, 150, 150, 180), anchor="mm")
+    block_top = group_top
+    block_bottom = block_top + block_height
+    divider_y = block_bottom + QUESTION_GROUP_GAP
+
+    first_line_y = block_top + (line_height / 2)
+
+    text_color = getattr(ctx, "question_text_color", None) or QUESTION_GOLD
+
+    for i, line in enumerate(lines):
+        y = first_line_y + (i * line_height)
+        draw.text((542, y + 2), line, font=font_question, fill=(0, 0, 0, 200), anchor="mm")
+        draw.text((540, y), line, font=font_question, fill=text_color, anchor="mm")
+
+    # Same divider element narration_scene.py uses above its scene
+    # dots -- identical color/thickness/span, deliberately reused as a
+    # visual callback rather than a new closing motif.
+    draw_archival_divider(draw, center_x=540, y=divider_y, total_width=480)
+
+    draw.text((542, 1882), ctx.watermark_text, font=font_brand, fill=(0, 0, 0, 180), anchor="mm")
     draw.text((540, 1880), ctx.watermark_text, font=font_brand, fill=(255, 255, 255, 160), anchor="mm")
 
     frame_path = f"{ctx.work_dir}/frame_{segment.id}.jpg"

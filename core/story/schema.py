@@ -42,6 +42,12 @@ class Story:
     # interprets this string -- it's just a lookup key forwarded to
     # whatever the brand's `voices:` config declares.
     voice_profile: str = None
+    # Optional: the story's primary historical/factual subject, if the
+    # brand's parser captures one (e.g. Mystery Lab's "Theme:" line).
+    # None for brands that don't populate it (e.g. Horror Lab) --
+    # purely additive, core does not require or interpret this field
+    # except when a brand-supplied dedup checker uses it (see engine.py).
+    primary_subject: str = None
 
     def narration_segments(self):
         return [s for s in self.segments if s.narration]

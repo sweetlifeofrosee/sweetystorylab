@@ -63,6 +63,14 @@ image:
 # GitHub secrets exactly -- my first pass invented HORROR_FB_PAGE_ID /
 # HORROR_FB_PAGE_TOKEN, which don't exist in your repo. Using the real
 # names means zero changes needed to your current GitHub secrets.
+question:
+  # Reduced ~6% from the shared 117pt default (117 -> 110), per request:
+  # more cinematic/psychological, less "large text" impact. Mystery Lab
+  # is untouched -- its config.yaml explicitly keeps 117.
+  max_font_size: 110
+  text_color: [255, 255, 255]  # restored white -- Horror Lab's original identity,
+                                # distinct from Mystery Lab's gold
+
 facebook:
   page_id_env: FB_PAGE_ID
   access_token_env: FB_PAGE_ACCESS_TOKEN

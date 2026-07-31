@@ -1,27 +1,54 @@
 """
 core/renderers/narration_scene.py
 
-Direct port of the original post.py `build_frame()`. Behavior is
-preserved exactly; the only changes are:
-  - "SweetyStoryLab" watermark string -> ctx.watermark_text
-  - hardcoded font path -> ctx.font_path
-  - scene dot count -> derived from ctx.total_narration_scenes instead
-    of a hardcoded "2 minus index" assuming exactly 3 scenes
+Direct port of the original post.py `build_frame()`, extended with an
+adaptive hero title treatment. The wrap/fit algorithm itself now lives
+in core/renderers/text_layout.py, shared with question_slide.py --
+this file owns only its own layout constants and drawing calls.
 
-That last point is flagged in the Assumption Audit: the original dot
-indicator ("● ● ○") silently assumed a 3-scene story. Generalizing it
-is REQUIRED for arbitrary segment counts to render correctly, so it's
-made explicit here rather than left as a hidden 3-scene assumption.
+Layout notes:
+  - Hero region: HERO_HEIGHT=480px (~25% of frame).
+  - Title wraps into up to 3 balanced lines, adaptively sized between
+    TITLE_MIN_FONT_SIZE and TITLE_MAX_FONT_SIZE.
+  - Title block is bottom-anchored to the divider (TITLE_GROUP_GAP
+    above it), not centered independently -- title, divider, and
+    scene dots read as one composed group; leftover space is absorbed
+    above the title, not wedged between title and divider.
+  - Main photo paste offset: y=500 (below the enlarged hero region).
+
+Unchanged: watermark position/size/style, subtitle rendering (owned by
+core/video/assembler.py), scene-dot indicator logic (only its position
+moved to stay attached to the divider).
 """
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from .text_layout import fit_text, draw_archival_divider
+
+CANVAS_WIDTH = 1080
+CANVAS_HEIGHT = 1920
+
+HERO_HEIGHT = 480
+HERO_FOOTER_HEIGHT = 100
+TITLE_AREA_HEIGHT = HERO_HEIGHT - HERO_FOOTER_HEIGHT
+TITLE_AREA_TOP_PADDING = 20
+TITLE_AREA_BOTTOM_PADDING = 20
+TITLE_MAX_TEXT_WIDTH = 920
+
+TITLE_MAX_FONT_SIZE = 120
+TITLE_MIN_FONT_SIZE = 40
+TITLE_FONT_SIZE_STEP = 4
+TITLE_MAX_LINES = 3
+TITLE_LINE_SPACING = 1.15
+TITLE_GROUP_GAP = 30   # gap between the bottom of the title block and the divider below it
+
+IMAGE_PASTE_Y = HERO_HEIGHT + 20
 
 
 def render(segment, ctx) -> str:
     img = Image.open(ctx.image_path).convert("RGB")
 
-    bg = img.resize((1080, 1920), Image.LANCZOS)
+    bg = img.resize((CANVAS_WIDTH, CANVAS_HEIGHT), Image.LANCZOS)
     bg = bg.filter(ImageFilter.GaussianBlur(radius=25))
-    darkener = Image.new("RGB", (1080, 1920), (0, 0, 0))
+    darkener = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), (0, 0, 0))
     bg = Image.blend(bg, darkener, 0.6)
 
     img_main = img.resize((1080, 1080), Image.LANCZOS)
@@ -36,34 +63,48 @@ def render(segment, ctx) -> str:
     img_main = img_rgba.convert("RGB")
 
     canvas = bg.copy()
-    canvas.paste(img_main, (0, 420))
+    canvas.paste(img_main, (0, IMAGE_PASTE_Y))
 
     canvas_rgba = canvas.convert("RGBA")
-    top_bar = Image.new("RGBA", (1080, 380), (0, 0, 0, 200))
+    top_bar = Image.new("RGBA", (CANVAS_WIDTH, HERO_HEIGHT), (0, 0, 0, 200))
     canvas_rgba.paste(top_bar, (0, 0), top_bar)
     canvas = canvas_rgba.convert("RGB")
 
     draw = ImageDraw.Draw(canvas)
     try:
-        font_title = ImageFont.truetype(ctx.font_path, 48)
         font_brand = ImageFont.truetype(ctx.font_path, 26)
         font_scene = ImageFont.truetype(ctx.font_path, 22)
     except Exception:
-        font_title = font_brand = font_scene = ImageFont.load_default()
+        font_brand = font_scene = ImageFont.load_default()
 
-    display_title = ctx.title if len(ctx.title) <= 28 else ctx.title[:25] + "..."
-    draw.text((542, 152), display_title, font=font_title, fill=(0, 0, 0, 200), anchor="mm")
-    draw.text((540, 150), display_title, font=font_title, fill=(255, 255, 255, 255), anchor="mm")
+    max_block_height = TITLE_AREA_HEIGHT - TITLE_AREA_TOP_PADDING - TITLE_AREA_BOTTOM_PADDING
+    lines, font_title, line_height = fit_text(
+        draw, ctx.title, ctx.font_path,
+        max_width=TITLE_MAX_TEXT_WIDTH, max_block_height=max_block_height,
+        min_size=TITLE_MIN_FONT_SIZE, max_size=TITLE_MAX_FONT_SIZE,
+        size_step=TITLE_FONT_SIZE_STEP, max_lines=TITLE_MAX_LINES,
+        line_spacing=TITLE_LINE_SPACING,
+    )
 
-    draw.rectangle([300, 200, 780, 203], fill=(255, 255, 255, 140))
+    divider_y = TITLE_AREA_HEIGHT + 20
+    dots_y = TITLE_AREA_HEIGHT + 55
 
-    # Generalized scene indicator: filled dots = segments up to and
-    # including this one, hollow dots = remaining narration segments.
-    # (Original hardcoded "2 - index" assuming exactly 3 scenes.)
+    block_height = line_height * len(lines)
+    block_bottom = divider_y - TITLE_GROUP_GAP
+    block_top = max(block_bottom - block_height, TITLE_AREA_TOP_PADDING)
+    first_line_y = block_top + (line_height / 2)
+
+    for i, line in enumerate(lines):
+        y = first_line_y + (i * line_height)
+        draw.text((542, y + 2), line, font=font_title, fill=(0, 0, 0, 200), anchor="mm")
+        draw.text((540, y), line, font=font_title, fill=(255, 255, 255, 255), anchor="mm")
+
+    draw_archival_divider(draw, center_x=540, y=divider_y, total_width=480)
+
     total = ctx.total_narration_scenes
     filled = ctx.scene_index + 1
     dots = "\u25cf " * filled + "\u25cb " * max(0, total - filled)
-    draw.text((540, 230), dots.strip(), font=font_scene, fill=(255, 255, 255, 180), anchor="mm")
+    draw.text((540, dots_y), dots.strip(), font=font_scene, fill=(255, 255, 255, 180), anchor="mm")
 
     draw.text((542, 1882), ctx.watermark_text, font=font_brand, fill=(0, 0, 0, 180), anchor="mm")
     draw.text((540, 1880), ctx.watermark_text, font=font_brand, fill=(255, 255, 255, 160), anchor="mm")
