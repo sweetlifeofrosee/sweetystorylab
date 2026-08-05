@@ -40,7 +40,9 @@ def discover_brands(brands_root: Path):
     design -- adding a third brand requires no change here.
     """
     brands = []
+    print(f"[weekly-report] Discovering brands under: {brands_root.resolve()}", file=sys.stderr)
     if not brands_root.exists():
+        print(f"[weekly-report] WARNING: {brands_root.resolve()} does not exist.", file=sys.stderr)
         return brands
     for entry in sorted(brands_root.iterdir()):
         if not entry.is_dir():
@@ -53,6 +55,13 @@ def discover_brands(brands_root: Path):
         except ConfigError as exc:
             print(f"WARNING: skipping {entry.name}: {exc}", file=sys.stderr)
             continue
+        subjects_path = entry / "used_subjects.json"
+        print(
+            f"[weekly-report] Found brand '{config.id}' at {entry.resolve()} "
+            f"(used_subjects.json exists: {subjects_path.exists()}"
+            + (f", size: {subjects_path.stat().st_size} bytes)" if subjects_path.exists() else ")"),
+            file=sys.stderr,
+        )
         brands.append(config)
     return brands
 

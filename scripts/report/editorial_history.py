@@ -38,6 +38,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 import json
+import sys
 
 from . import git_history
 
@@ -97,6 +98,11 @@ def load_editorial_history(
     week_end: datetime,
 ) -> EditorialHistory:
     subjects_path = brand_dir / SUBJECTS_FILENAME
+    print(
+        f"[editorial_history] {brand_id}: checking {subjects_path.resolve()} "
+        f"(exists: {subjects_path.exists()})",
+        file=sys.stderr,
+    )
 
     if not subjects_path.exists():
         return EditorialHistory(
@@ -109,9 +115,32 @@ def load_editorial_history(
             ),
         )
 
-    current_set = _load_subjects_set(subjects_path.read_text(encoding="utf-8"))
+    raw_text = subjects_path.read_text(encoding="utf-8")
+    current_set = _load_subjects_set(raw_text)
+    print(
+        f"[editorial_history] {brand_id}: read {len(raw_text)} chars, "
+        f"parsed {len(current_set)} subject(s) from {SUBJECTS_FILENAME}",
+        file=sys.stderr,
+    )
+    if raw_text and not current_set:
+        # The file exists and has content, but parsing yielded nothing --
+        # this is the exact failure mode this diagnostic exists to catch.
+        # Print the raw content (truncated) so the actual on-disk shape is
+        # visible in the Actions log rather than silently swallowed.
+        print(
+            f"[editorial_history] {brand_id}: WARNING -- file is non-empty but "
+            f"parsed to 0 subjects. Raw content (first 300 chars): "
+            f"{raw_text[:300]!r}",
+            file=sys.stderr,
+        )
 
     if not git_history.is_git_repo(repo_root):
+        print(
+            f"[editorial_history] {brand_id}: {repo_root.resolve()} is not a git "
+            f"repository (or git is unavailable) -- reporting cumulative state only, "
+            f"no weekly delta.",
+            file=sys.stderr,
+        )
         # Still report cumulative state -- just can't compute a weekly
         # delta without git history available.
         return EditorialHistory(
@@ -131,7 +160,13 @@ def load_editorial_history(
     # brand paths with subdirectories. .as_posix() always yields forward slashes
     # regardless of platform, which is what git expects on every OS, including Windows.
     relative_path = subjects_path.relative_to(repo_root).as_posix()
+    print(
+        f"[editorial_history] {brand_id}: querying git history for '{relative_path}' "
+        f"in window [{week_start.isoformat()}, {week_end.isoformat()})",
+        file=sys.stderr,
+    )
     commits = git_history.commits_touching_file(relative_path, repo_root, week_start, week_end)
+    print(f"[editorial_history] {brand_id}: found {len(commits)} commit(s) in window", file=sys.stderr)
 
     weekly_new = set()
     for commit in commits:
