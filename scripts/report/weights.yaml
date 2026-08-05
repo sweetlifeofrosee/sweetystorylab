@@ -1,0 +1,16 @@
+# scripts/report/weights.yaml
+#
+# Pillar weights for the Weekly Performance Score, per the approved
+# v1.3 architecture (Architecture and Development Guide §14.4).
+#
+# NOT YET READ BY CODE in V1. aggregate.py's V1 scoring only ever
+# produces an operational-only score (see aggregate._compute_score),
+# since no platform source is implemented yet -- there is no
+# Audience/Engagement data to apply these weights to. This file is
+# committed now, with the values the design specifies, so that V2's
+# scoring work has a single place to read real weights from rather
+# than reintroducing this decision.
+
+audience: 0.40
+engagement: 0.40
+operational_health: 0.20
