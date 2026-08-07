@@ -75,5 +75,16 @@ facebook:
   page_id_env: FB_PAGE_ID
   access_token_env: FB_PAGE_ACCESS_TOKEN
 
+# HORROR_LAB_TIKTOK_REFRESH_TOKEN is not yet set as a GitHub Actions
+# secret -- this is Horror Lab's account (the one the handoff doc's
+# manual-posting problem was about), so it's the first to reference
+# one, but the value doesn't exist yet pending TikTok app audit
+# (see Phase 2 handoff doc). Until it's set, TikTokProvider runs in
+# dry-run mode for this brand -- same "declare the reference, stay
+# safe until the real secret exists" pattern Facebook already used
+# for mystery_lab.
+tiktok:
+  refresh_token_env: HORROR_LAB_TIKTOK_REFRESH_TOKEN
+
 schedule:
   times_pht: []   # scheduling stays external, in GitHub Actions cron

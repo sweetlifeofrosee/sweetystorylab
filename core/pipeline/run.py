@@ -7,6 +7,7 @@ that brand's own prompt files + parser + config, and drives the
 generic providers/renderers. No brand_id branching anywhere below.
 """
 import importlib
+import json
 import os
 import tempfile
 
@@ -23,6 +24,7 @@ from ..providers.tts.orchestrator import generate_voice
 from ..subtitles.beat_splitter import rewrite_srt_as_beats
 from ..providers.music.local_file_provider import LocalFileMusicProvider
 from ..providers.publish.facebook_provider import FacebookReelsProvider
+from ..providers.publish.tiktok_provider import TikTokProvider
 from ..providers.publish.base import PublishResult
 from ..video.assembler import build_video
 from ..storage.log_store import init_db, log_result
@@ -49,6 +51,57 @@ class RenderContext:
         self.scene_index = 0    # set per-segment before rendering
 
 
+# Overridable via env var so a workflow step (or a test) can point
+# this somewhere else without run_brand() needing a new parameter.
+# Deliberately NOT under work_dir/output_root -- those are
+# per-run/per-story and often cleaned up or archived; this needs to
+# survive to a step that runs after run_brand() returns, so it
+# defaults to the repo/working directory root instead.
+_TIKTOK_REFRESHED_CREDENTIALS_PATH_ENV = "TIKTOK_REFRESHED_CREDENTIALS_PATH"
+_TIKTOK_REFRESHED_CREDENTIALS_DEFAULT_PATH = ".tiktok_refreshed_credentials.json"
+
+
+def _persist_refreshed_tiktok_credentials(publish_result: PublishResult, brand_id: str) -> None:
+    """
+    Writes publish_result.refreshed_credentials to a local, gitignored
+    JSON file if present -- a no-op otherwise (dry run, or a publish
+    attempt that failed before ever reaching the refresh step).
+
+    Deliberately does NOT talk to GitHub's API, an external secrets
+    manager, or anything else "where credentials actually live
+    long-term" -- that decision was explicitly left to a separate
+    workflow step/helper (see tiktok_auth.py's module docstring for
+    the same boundary applied one layer down). This function's only
+    job is: don't let a successfully-refreshed token pair evaporate
+    when the process exits, by putting it somewhere a follow-up step
+    can find it.
+
+    Never logs the actual token values -- only the fact that a file
+    was written and where, so CI logs stay clean.
+    """
+    if publish_result.refreshed_credentials is None:
+        return
+
+    path = os.environ.get(
+        _TIKTOK_REFRESHED_CREDENTIALS_PATH_ENV,
+        _TIKTOK_REFRESHED_CREDENTIALS_DEFAULT_PATH,
+    )
+    payload = {
+        "brand_id": brand_id,
+        **publish_result.refreshed_credentials,
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f)
+
+    print(
+        f"[{brand_id}] TikTok credentials were refreshed during this run. "
+        f"New token pair written to {path} (not committed -- see .gitignore) "
+        f"for a follow-up step to persist. This file is NOT deleted by "
+        f"run_brand() itself -- whatever reads it is responsible for "
+        f"removing it once persisted."
+    )
+
+
 def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.db",
               force_dry_run: bool = False, dedup_kwargs: dict = None,
               platform: str = "facebook"):
@@ -73,13 +126,28 @@ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.
     question-slide sizing+position, subtitle margin). It does not
     touch prompts, story generation, images, music, voice, or timing.
 
-    Publishing stays Facebook-only, unchanged, for platform="facebook"
-    (the default -- so every existing call site behaves exactly as
-    before). For any other platform, the real Facebook publish call is
-    skipped -- there is no automated TikTok upload yet, so the
-    rendered video is left for manual upload, matching current
-    practice -- and publish_result comes back as a non-dry-run "skip"
-    so callers/logs can tell it apart from an actual dry run."""
+    Publishing: platform="facebook" (the default) is completely
+    unchanged -- every existing call site behaves exactly as before.
+    platform="tiktok" now actually publishes via TikTokProvider (Phase
+    2) instead of rendering-and-skipping -- see TikTokProvider's own
+    docstring for the refresh/creator_info/chunked-upload/poll flow.
+    Any OTHER platform value keeps the old render-and-skip placeholder
+    behavior, so a platform added later without its own provider yet
+    doesn't crash -- it degrades the same way tiktok itself used to.
+
+    TikTok credential rotation: TikTokProvider.publish() may return a
+    freshly-rotated (access_token, refresh_token) pair in
+    publish_result.refreshed_credentials -- TikTok invalidates the old
+    refresh_token on every use, so this is not optional to discard.
+    Per the storage-agnostic design agreed for tiktok_auth.py/
+    tiktok_provider.py, run_brand() itself does not call any
+    GitHub-specific API to persist it -- it writes it to a local JSON
+    file instead (see TIKTOK_REFRESHED_CREDENTIALS_PATH below) and
+    leaves picking it up and persisting it (repo secret update,
+    external secrets manager, etc.) to a separate step. The file is
+    NOT committed (see .gitignore) and its path is deliberately
+    configurable via env var so a workflow step can locate it without
+    run_brand() needing to know anything about where it's running."""
     layout_profile = layout_profiles.get_profile(platform)
 
     brand_dir = os.path.join(brands_root, brand_id)
@@ -221,12 +289,34 @@ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.
             is_dry_run=(config.facebook.is_dry_run or force_dry_run),
         )
         publish_result = publisher.publish(output_path, story.title, caption)
+    elif platform == "tiktok":
+        tiktok_client_key = platform_config.get_tiktok_client_key()
+        tiktok_client_secret = platform_config.get_tiktok_client_secret()
+        # Real dry-run state combines brand-level (refresh_token) and
+        # platform-level (client_key/client_secret) missing pieces --
+        # TikTokConfig.is_dry_run alone only knows about the brand
+        # side (see TikTokConfig's docstring in core/config/loader.py).
+        tiktok_is_dry_run = (
+            config.tiktok.is_dry_run
+            or not tiktok_client_key
+            or not tiktok_client_secret
+            or force_dry_run
+        )
+        publisher = TikTokProvider(
+            client_key=tiktok_client_key,
+            client_secret=tiktok_client_secret,
+            refresh_token=config.tiktok.refresh_token,
+            is_dry_run=tiktok_is_dry_run,
+        )
+        publish_result = publisher.publish(output_path, story.title, caption)
+        _persist_refreshed_tiktok_credentials(publish_result, brand_id)
     else:
-        # No automated upload path for this platform yet -- the video
-        # is rendered with the correct layout and left here for manual
-        # upload (matches current Horror Lab TikTok practice). This
-        # deliberately does NOT call FacebookReelsProvider -- publishing
-        # a tiktok-profile video to Facebook would be wrong, and the
+        # Placeholder path for any platform value that isn't facebook
+        # or tiktok -- kept so a future --platform without its own
+        # provider yet degrades safely instead of crashing, the same
+        # way tiktok itself used to before this phase. Deliberately
+        # does NOT call FacebookReelsProvider -- publishing a
+        # tiktok-profile video to Facebook would be wrong, and the
         # real Facebook publish path (above) is completely untouched.
         publish_result = PublishResult(
             success=True,

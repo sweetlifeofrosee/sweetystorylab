@@ -29,6 +29,24 @@ class FacebookConfig:
 
 
 @dataclass
+class TikTokConfig:
+    # client_key/client_secret are NOT here -- those identify the
+    # TikTok developer app, shared across every brand, and live in
+    # platform-level env vars (core/config/platform.py), same
+    # separation as Groq/ElevenLabs vs Facebook's per-brand page_id.
+    refresh_token: Optional[str]
+    is_dry_run: bool  # True if refresh_token is missing/placeholder for
+                       # this brand -- mirrors FacebookConfig.is_dry_run.
+                       # NOTE: does not know about client_key/client_secret
+                       # availability -- the caller (run_brand()) combines
+                       # this with platform_config.get_tiktok_client_key()/
+                       # get_tiktok_client_secret() to decide the real
+                       # dry-run state, since those are platform-level,
+                       # not brand-level, and this loader only sees brand
+                       # config.
+
+
+@dataclass
 class BrandConfig:
     id: str
     name: str
@@ -64,6 +82,7 @@ class BrandConfig:
     schedule_times_pht: list
 
     facebook: FacebookConfig
+    tiktok: TikTokConfig
 
     raw: dict = field(repr=False, default_factory=dict)
     brand_dir: Path = field(repr=False, default=None)
@@ -111,6 +130,19 @@ def load_brand_config(brand_dir) -> BrandConfig:
         page_id=page_id,
         access_token=access_token,
         is_dry_run=is_dry_run,
+    )
+
+    # Optional section -- unlike `facebook`, `tiktok` is NOT in
+    # _REQUIRED_TOP_LEVEL. Brands that haven't set up TikTok yet
+    # simply get a TikTokConfig with refresh_token=None,
+    # is_dry_run=True, same shape as a brand with a real
+    # `tiktok:` section but no refresh_token_env resolved -- no
+    # separate "TikTok not configured" code path needed anywhere else.
+    tk = raw.get("tiktok", {})
+    tk_refresh_token = _resolve_env(tk.get("refresh_token_env"))
+    tiktok_config = TikTokConfig(
+        refresh_token=tk_refresh_token,
+        is_dry_run=not tk_refresh_token,
     )
 
     for required_field in ["segment_template", "system_prompt_file",
@@ -174,6 +206,7 @@ def load_brand_config(brand_dir) -> BrandConfig:
         font_file=branding["font"],
         schedule_times_pht=schedule.get("times_pht", []),
         facebook=facebook_config,
+        tiktok=tiktok_config,
         raw=raw,
         brand_dir=brand_dir,
     )

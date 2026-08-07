@@ -16,28 +16,36 @@ single story, normal publish-or-dry-run path, same exit codes.
 --platform selects a Platform Layout Profile (core/renderers/
 layout_profiles.py) -- "facebook" (default) or "tiktok". Omit it
 entirely and behavior is byte-for-byte identical to before this flag
-existed. Facebook keeps auto-publishing exactly as before; any other
-platform renders the video with that platform's layout and skips
-auto-publish (no automated upload path exists yet -- the file is left
-for manual upload, matching current practice) rather than touching
-FacebookReelsProvider or posting the wrong layout to Facebook.
+existed. Facebook keeps auto-publishing exactly as before.
 
-Exit codes (for GitHub Actions to branch on), unchanged from before:
-  0 = pipeline completed and either published successfully, completed
-      a valid dry run (expected for brands without a live Facebook
-      Page/token yet), or rendered successfully for a platform with no
-      auto-publish path (e.g. --platform tiktok) -- none of these are
-      failures.
+Phase 2 update: --platform tiktok now actually publishes via
+TikTokProvider, the same success/dry-run/fail trichotomy Facebook has
+-- it no longer just renders-and-skips. (Any platform value besides
+these two still renders-and-skips, as tiktok itself used to, so a
+future platform without its own provider degrades safely.)
+
+Exit codes (for GitHub Actions to branch on):
+  0 = pipeline completed and either published successfully (Facebook
+      or TikTok), completed a valid dry run (expected for a brand/
+      platform without live credentials yet), or rendered successfully
+      for a platform with no publish provider at all -- none of these
+      are failures.
   1 = pipeline crashed before completion (config error, API error,
       rendering error, etc.) -- something is broken and needs eyes.
   2 = pipeline completed end-to-end (video was generated) but the
-      real Facebook publish attempt failed -- content exists locally
-      but did not reach Facebook. Distinguished from exit 1 so GitHub
-      Actions logs/alerts can tell "nothing was produced" apart from
-      "something was produced but publishing failed." Not reachable
-      for non-Facebook platforms, since they never attempt a publish.
+      real publish attempt failed -- content exists locally but did
+      not reach the platform. Now reachable for BOTH --platform
+      facebook and --platform tiktok (previously Facebook-only, since
+      tiktok had no real publish attempt to fail).
 --count mode always exits 0 or 1 (crash) -- there's no publish step
 to fail, by design.
+
+TikTok credential rotation: if TikTokProvider refreshed the account's
+token during this run, run_brand() has already written the new pair
+to a local file and printed where (see core/pipeline/run.py's
+_persist_refreshed_tiktok_credentials) before returning here -- this
+module has no separate handling for it, on purpose, to keep that
+concern in one place.
 """
 import argparse
 import sys
@@ -103,25 +111,29 @@ def main(argv=None) -> int:
 
     publish_result = result["publish_result"]
 
-    if args.platform != "facebook":
-        # No automated upload path for this platform -- the video was
-        # rendered with the correct layout; real Facebook publish was
-        # never attempted, so publish_result here always reflects a
-        # deliberate skip, not a dry run or a failure.
+    # facebook and tiktok both go through the real trichotomy below --
+    # only a genuinely unimplemented platform value (not reachable via
+    # this CLI's --platform choices, but reachable if run_brand() is
+    # called as a library function directly) still gets the old
+    # render-and-skip message.
+    if args.platform not in ("facebook", "tiktok"):
         print(f"[{args.brand}] Rendered for platform='{args.platform}'. "
               f"video_path={result['video_path']} -- {publish_result.detail}")
         return 0
 
     if publish_result.dry_run:
-        print(f"[{args.brand}] Completed (dry run). {publish_result.detail}")
+        print(f"[{args.brand}] Completed (dry run, platform={args.platform}). "
+              f"{publish_result.detail}")
         return 0
 
     if publish_result.success:
-        print(f"[{args.brand}] Published successfully. post_id={publish_result.post_id}")
+        print(f"[{args.brand}] Published successfully to {args.platform}. "
+              f"post_id={publish_result.post_id}"
+              + (f" -- {publish_result.detail}" if publish_result.detail else ""))
         return 0
 
-    print(f"[{args.brand}] Video generated but publish FAILED: {publish_result.detail}",
-          file=sys.stderr)
+    print(f"[{args.brand}] Video generated but publish to {args.platform} FAILED: "
+          f"{publish_result.detail}", file=sys.stderr)
     return 2
 
 

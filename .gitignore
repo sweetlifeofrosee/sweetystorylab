@@ -7,3 +7,7 @@ __pycache__/
 *.db
 # Testing folder
 output/
+
+# TikTok token-refresh handoff file (core/pipeline/run.py)
+# -- carries a live access_token/refresh_token pair, never committed.
+.tiktok_refreshed_credentials.json
