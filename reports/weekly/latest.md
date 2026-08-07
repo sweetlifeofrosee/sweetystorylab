@@ -5,7 +5,7 @@
 | Brand | Score | Basis | Subjects this week |
 |---|---|---|---|
 | 👻 Horror Lab | n/a | Insufficient repository-side data to compute even an operational-only score this week. | 0 |
-| 📜 Mystery Lab | 14.3 | Operational-only score (Audience/Engagement unavailable -- no platform source implemented in V1): actual vs. planned posts this week, as a percentage, capped at 100. | 0 |
+| 📜 Mystery Lab | 100.0 | Operational-only score (Audience/Engagement unavailable -- no platform source implemented in V1): actual vs. planned posts this week, as a percentage, capped at 100. | 9 |
 
 _All scores this week are operational-only: Audience/Engagement data is unavailable in V1 (see §14.6 of the Architecture and Development Guide)._
 
@@ -20,7 +20,7 @@ _All scores this week are operational-only: Audience/Engagement data is unavaila
 ### 📜 Mystery Lab
 
 - **Planned posts this week:** 7 (from `post_mystery.yml`)
-- **Actual posts this week:** 1
+- **Actual posts this week:** 10
 - _Derived from commits to used_subjects.json this week (one commit per accepted, non-duplicate story -- see editorial_history.py). This is a proxy for successful posts, not a verified count: it won't reflect a run that failed before generation, and it undercounts if a brand ever accepts a repeat subject without a file change._
 
 ## Editorial Intelligence
@@ -35,9 +35,18 @@ _All scores this week are operational-only: Audience/Engagement data is unavaila
 
 ### 📜 Mystery Lab
 
-**Subjects covered this week:** none recorded.
+**Subjects covered this week:**
+- Dogon Tribe
+- Indus Valley
+- Indus Valley Civilization
+- Moche Temples
+- Nubian Pyramids
+- Rapa Nui Moai
+- Tanis
+- Terracotta Army
+- Thonis-Heraklion
 
-**Cumulative subjects tracked (all-time):** 0
+**Cumulative subjects tracked (all-time):** 8
 
 **Best-performing categories / themes / top hooks / category frequency:** not yet available -- no brand currently captures category, theme, or hook metadata (Guide §7, §12). This section will populate once that schema work lands; it is left visible here rather than omitted, so the report's shape doesn't need to change when it does.
 

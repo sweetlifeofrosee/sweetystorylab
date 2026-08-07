@@ -14,13 +14,16 @@ from ..config.loader import load_brand_config
 from ..config import platform as platform_config
 from ..story.engine import generate_story
 from ..renderers.registry import render_segment, get_spec
+from ..renderers import layout_profiles
 from ..providers.llm.groq_provider import GroqProvider
 from ..providers.image.pollinations_provider import PollinationsProvider
 from ..providers.tts.edge_tts_provider import EdgeTTSProvider
 from ..providers.tts.elevenlabs_provider import ElevenLabsProvider
 from ..providers.tts.orchestrator import generate_voice
+from ..subtitles.beat_splitter import rewrite_srt_as_beats
 from ..providers.music.local_file_provider import LocalFileMusicProvider
 from ..providers.publish.facebook_provider import FacebookReelsProvider
+from ..providers.publish.base import PublishResult
 from ..video.assembler import build_video
 from ..storage.log_store import init_db, log_result
 
@@ -30,7 +33,7 @@ class RenderContext:
     styling so renderers stay generic across brands."""
     def __init__(self, work_dir, title, watermark_text, font_path,
                  total_narration_scenes, question_max_font_size=None,
-                 question_text_color=None):
+                 question_text_color=None, layout_profile=None):
         self.work_dir = work_dir
         self.title = title
         self.watermark_text = watermark_text
@@ -38,12 +41,17 @@ class RenderContext:
         self.total_narration_scenes = total_narration_scenes
         self.question_max_font_size = question_max_font_size
         self.question_text_color = question_text_color
+        # Platform Layout Profile (see core/renderers/layout_profiles.py).
+        # Defaults to Facebook -- every existing caller that doesn't pass
+        # this argument keeps producing identical output to before.
+        self.layout_profile = layout_profile or layout_profiles.FACEBOOK
         self.image_path = None  # set per-segment before rendering
         self.scene_index = 0    # set per-segment before rendering
 
 
 def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.db",
-              force_dry_run: bool = False, dedup_kwargs: dict = None):
+              force_dry_run: bool = False, dedup_kwargs: dict = None,
+              platform: str = "facebook"):
     """force_dry_run is purely a developer/testing convenience (see
     run_brand_batch below) -- when True, publishing is skipped
     regardless of whether real credentials exist. Default behavior
@@ -57,7 +65,23 @@ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.
     dedup_module a brand supplies may honor, the same way brand parsers
     and fallback providers all accept `brand_id=`. Defaults to None,
     meaning the dedup module uses its own default persistence location
-    (the canonical, production file)."""
+    (the canonical, production file).
+
+    platform: which Platform Layout Profile (core/renderers/
+    layout_profiles.py) to render with -- "facebook" (default) or
+    "tiktok". This ONLY changes rendering geometry (title/watermark/
+    question-slide sizing+position, subtitle margin). It does not
+    touch prompts, story generation, images, music, voice, or timing.
+
+    Publishing stays Facebook-only, unchanged, for platform="facebook"
+    (the default -- so every existing call site behaves exactly as
+    before). For any other platform, the real Facebook publish call is
+    skipped -- there is no automated TikTok upload yet, so the
+    rendered video is left for manual upload, matching current
+    practice -- and publish_result comes back as a non-dry-run "skip"
+    so callers/logs can tell it apart from an actual dry run."""
+    layout_profile = layout_profiles.get_profile(platform)
+
     brand_dir = os.path.join(brands_root, brand_id)
     config = load_brand_config(brand_dir)
 
@@ -131,6 +155,7 @@ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.
             total_narration_scenes=narration_scene_count,
             question_max_font_size=config.question_max_font_size,
             question_text_color=config.question_text_color,
+            layout_profile=layout_profile,
         )
         # Segments with no image_prompt of their own (e.g. question_slide)
         # reuse the most recently generated narration image as their
@@ -162,6 +187,17 @@ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.
     tts_used = generate_voice(story.full_narration_text(), voice_path, srt_path,
                                primary_provider=primary, fallback_provider=fallback)
 
+    # Phase 1 subtitle beat-splitting (see design conversation): purely
+    # a post-processing pass on the .srt file generate_voice() already
+    # produced, regardless of which TTS path made it. Does not touch
+    # voice_path, does not touch either TTS provider, does not touch
+    # narration text. Writes a second file rather than overwriting
+    # srt_path, so the original TTS-provider output is preserved on
+    # disk for debugging/comparison if beat lengths ever need tuning.
+    beats_srt_path = os.path.join(work_dir, "voice_beats.srt")
+    rewrite_srt_as_beats(srt_path, beats_srt_path,
+                          max_chars=layout_profile.subtitle_beat_max_chars)
+
     music_local_path = (
         os.path.join(brand_dir, config.music_local_file)
         if config.music_local_file else None
@@ -170,18 +206,37 @@ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.
     music_path = music_provider.generate()
 
     output_path = os.path.join(work_dir, "final.mp4")
-    build_video(rendered_segments, voice_path, srt_path, work_dir, output_path, music_path)
+    build_video(rendered_segments, voice_path, beats_srt_path, work_dir, output_path, music_path,
+                layout_profile=layout_profile)
 
-    publisher = FacebookReelsProvider(
-        page_id=config.facebook.page_id,
-        access_token=config.facebook.access_token,
-        is_dry_run=(config.facebook.is_dry_run or force_dry_run),
-    )
     # CORRECTED (architecture review): real post.py uses
     # f"{caption}\n\n{hashtags}" -- this previously used a single
     # space, never verified until now. Real parity, not a style choice.
     caption = f"{story.caption}\n\n{' '.join(story.hashtags)}"
-    publish_result = publisher.publish(output_path, story.title, caption)
+
+    if platform == "facebook":
+        publisher = FacebookReelsProvider(
+            page_id=config.facebook.page_id,
+            access_token=config.facebook.access_token,
+            is_dry_run=(config.facebook.is_dry_run or force_dry_run),
+        )
+        publish_result = publisher.publish(output_path, story.title, caption)
+    else:
+        # No automated upload path for this platform yet -- the video
+        # is rendered with the correct layout and left here for manual
+        # upload (matches current Horror Lab TikTok practice). This
+        # deliberately does NOT call FacebookReelsProvider -- publishing
+        # a tiktok-profile video to Facebook would be wrong, and the
+        # real Facebook publish path (above) is completely untouched.
+        publish_result = PublishResult(
+            success=True,
+            dry_run=False,
+            detail=(
+                f"Rendered for platform='{platform}' -- no automated upload "
+                f"configured for this platform yet. Video is ready at "
+                f"{output_path} for manual upload."
+            ),
+        )
 
     init_db(db_path)
     status = "success" if (publish_result.success or publish_result.dry_run) else "failed"
@@ -195,11 +250,12 @@ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.
         "work_dir": work_dir,
         "tts_used": tts_used,
         "srt_path": srt_path,
+        "beats_srt_path": beats_srt_path,
     }
 
 
 def run_brand_batch(brand_id: str, count: int, brands_root: str = "brands",
-                     output_root: str = "output"):
+                     output_root: str = "output", platform: str = "facebook"):
     """Developer/testing convenience: generate `count` completely
     independent stories in one run, never publishing, saving each
     story's full output (generated story JSON, images, video,
@@ -212,6 +268,11 @@ def run_brand_batch(brand_id: str, count: int, brands_root: str = "brands",
 
     Purely additive on top of run_brand() -- no schema, renderer,
     prompt, or registry changes; no brand-specific logic here either.
+
+    platform: same Platform Layout Profile selector as run_brand()
+    (default "facebook", so existing --count usage is unaffected).
+    Useful for generating a batch of TikTok-profile videos to review
+    before wider use, without publishing anything either way.
     """
     import dataclasses
     import json
@@ -243,6 +304,7 @@ def run_brand_batch(brand_id: str, count: int, brands_root: str = "brands",
             db_path=os.path.join(story_dir, "log.db"),
             force_dry_run=True,
             dedup_kwargs=batch_dedup_kwargs,
+            platform=platform,
         )
 
         # Copy everything the run actually produced (images, rendered
@@ -267,6 +329,7 @@ def run_brand_batch(brand_id: str, count: int, brands_root: str = "brands",
                 "timestamp": timestamp,
                 "title": story.title,
                 "tts_provider_used": result["tts_used"],
+                "platform": platform,
                 "publish_mode": "dry_run (forced -- --count never publishes)",
             }, f, indent=2, ensure_ascii=False)
 

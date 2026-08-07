@@ -22,11 +22,20 @@ SUBTITLE STYLING (Direction A + C, generic across both brands):
     instead of the previous -vf/-filter_complex mix -- an internal
     robustness improvement, not a public interface change; build_video()'s
     signature and behavior are otherwise unchanged.
+
+PLATFORM LAYOUT PROFILES: subtitle_target_margin_px now comes from a
+LayoutProfile (see core/renderers/layout_profiles.py) instead of a
+hardcoded module constant, so a platform's caption/UI overlay can be
+cleared without touching subtitle content, timing, or styling.
+Facebook's profile value (150) equals the original hardcoded constant,
+so build_video(..., layout_profile=None) -- or the explicit Facebook
+profile -- produces byte-identical output to before this change.
 """
 import json
 import os
 import subprocess
 from PIL import Image, ImageDraw
+from ..renderers.layout_profiles import FACEBOOK as _DEFAULT_PROFILE
 
 CANVAS_WIDTH = 1080
 CANVAS_HEIGHT = 1920
@@ -59,13 +68,11 @@ SUBTITLE_GRADIENT_EASE = 1.6       # >1 keeps the top of the gradient nearly inv
 # version changes this default, recalibrate this one constant by
 # rendering a test frame and measuring the actual text position the
 # same way (see the verification method used when this was derived).
+# This scale factor itself is a libass/FFmpeg implementation detail,
+# not a platform concern -- it stays a module constant for every
+# platform; only the *target* margin (how far up the platform needs
+# the text to sit) varies, via LayoutProfile.
 LIBASS_MARGINV_SCALE_FACTOR = 6.8
-
-# Desired literal on-screen distance (in real output pixels) from the
-# bottom edge to the subtitle text -- chosen to sit well within the
-# gradient zone (y=1460-1920) and clear of the watermark (y~1880).
-SUBTITLE_TARGET_MARGIN_PX = 150
-SUBTITLE_MARGIN_V = round(SUBTITLE_TARGET_MARGIN_PX / LIBASS_MARGINV_SCALE_FACTOR)
 
 
 def _generate_subtitle_gradient(work_dir: str) -> str:
@@ -84,14 +91,22 @@ def _generate_subtitle_gradient(work_dir: str) -> str:
 
 
 def build_video(rendered_segments, voice_path: str, srt_path: str,
-                 work_dir: str, output_path: str, music_path: str = None) -> str:
+                 work_dir: str, output_path: str, music_path: str = None,
+                 layout_profile=None) -> str:
     """
     rendered_segments: list of (frame_path, segment) tuples, in order.
         segment.duration_mode == "audio_length" segments split the
         narration audio's total duration evenly among themselves.
         segment.duration_mode == "fixed" segments use their own
         duration_seconds.
+
+    layout_profile: a core.renderers.layout_profiles.LayoutProfile.
+        Defaults to the Facebook profile (the historical hardcoded
+        margin), so every existing caller that doesn't pass this
+        argument is completely unaffected.
     """
+    profile = layout_profile or _DEFAULT_PROFILE
+    subtitle_margin_v = round(profile.subtitle_target_margin_px / LIBASS_MARGINV_SCALE_FACTOR)
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", voice_path],
         capture_output=True, text=True,
@@ -188,18 +203,31 @@ def build_video(rendered_segments, voice_path: str, srt_path: str,
     # shadow, no bold, slightly larger font, more breathing room from
     # the bottom edge. Legibility now comes from the soft gradient
     # (Direction C) instead of a heavy outline.
-    subtitle_style = (
-        "FontName=Arial,"
-        "FontSize=11,"
-        "PrimaryColour=&H00FFFFFF,"
-        "OutlineColour=&H00000000,"
-        "BackColour=&H60000000,"
-        "Bold=0,"
-        "Outline=1,"
-        "Shadow=1,"
-        "Alignment=2,"
-        f"MarginV={SUBTITLE_MARGIN_V}"
-    )
+    #
+    # MarginL/MarginR are only appended when the profile sets them
+    # (nonzero) -- Facebook's profile has both at 0, so its style
+    # string below is byte-identical to before this platform-aware
+    # version existed. See core/renderers/layout_profiles.py for how
+    # subtitle_font_size / subtitle_margin_l / subtitle_margin_r were
+    # derived (measured against real rendered frames, not just
+    # calculated from style-value ratios).
+    style_parts = [
+        "FontName=Arial",
+        f"FontSize={profile.subtitle_font_size}",
+        "PrimaryColour=&H00FFFFFF",
+        "OutlineColour=&H00000000",
+        "BackColour=&H60000000",
+        "Bold=0",
+        "Outline=1",
+        "Shadow=1",
+        "Alignment=2",
+        f"MarginV={subtitle_margin_v}",
+    ]
+    if profile.subtitle_margin_l:
+        style_parts.append(f"MarginL={profile.subtitle_margin_l}")
+    if profile.subtitle_margin_r:
+        style_parts.append(f"MarginR={profile.subtitle_margin_r}")
+    subtitle_style = ",".join(style_parts)
 
     has_music = music_path is not None and os.path.exists(music_path)
     if has_music:

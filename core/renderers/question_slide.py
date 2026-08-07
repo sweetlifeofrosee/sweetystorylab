@@ -23,16 +23,24 @@ layout system:
 Genre-neutral: works for a horror comment-bait question exactly as
 well as a documentary closing question -- the text itself is brand/
 prompt content, not renderer logic.
+
+Platform selection: `ctx.layout_profile` (see core/renderers/
+layout_profiles.py) supplies question_max_text_width,
+question_stage_bottom, and question_font_scale. QUESTION_STAGE_TOP is
+NOT platform-varying -- 450 already sits well clear of every
+platform's top UI, so only the bottom of the stage (closer to
+bottom-edge UI like TikTok's caption area) and the width (the
+right-side action column) move by platform. Facebook's profile values
+reproduce this file's original hardcoded constants exactly.
 """
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from .text_layout import fit_text, draw_archival_divider
+from .layout_profiles import FACEBOOK as _DEFAULT_PROFILE
 
 CANVAS_WIDTH = 1080
 CANVAS_HEIGHT = 1920
 
-QUESTION_MAX_TEXT_WIDTH = 920
 QUESTION_STAGE_TOP = 450         # top of the region the whole group can occupy (moved up 50px)
-QUESTION_STAGE_BOTTOM = 1650     # bottom of that region (moved up 50px, same stage height)
 QUESTION_GROUP_GAP = 40          # gap between the bottom of the question block and the divider
 DIVIDER_THICKNESS = 3
 
@@ -52,6 +60,9 @@ QUESTION_GOLD = (198, 156, 84)   # brand-neutral DEFAULT (used when RenderContex
 
 
 def render(segment, ctx) -> str:
+    # Defensive fallback, same rationale as narration_scene.py.
+    profile = getattr(ctx, "layout_profile", None) or _DEFAULT_PROFILE
+
     try:
         img = Image.open(ctx.image_path).convert("RGB")
         bg = img.resize((CANVAS_WIDTH, CANVAS_HEIGHT), Image.LANCZOS)
@@ -67,16 +78,22 @@ def render(segment, ctx) -> str:
     except Exception:
         font_brand = ImageFont.load_default()
 
-    stage_height = QUESTION_STAGE_BOTTOM - QUESTION_STAGE_TOP
+    stage_height = profile.question_stage_bottom - QUESTION_STAGE_TOP
     max_block_height = stage_height - QUESTION_GROUP_GAP - DIVIDER_THICKNESS
     # Brand-overridable ceiling: falls back to the module default if the
     # caller doesn't provide one via RenderContext (e.g. direct/isolated
     # renderer tests). No brand awareness lives in this file -- it's an
     # opaque value forwarded from config, same pattern as font_path etc.
-    max_size = getattr(ctx, "question_max_font_size", None) or QUESTION_MAX_FONT_SIZE
+    # The platform's question_font_scale is then applied on top of
+    # whichever ceiling is already in force (brand override or module
+    # default) -- 1.0 for Facebook (no change), <1.0 for platforms that
+    # need smaller text to fit a tighter safe area. This keeps brand
+    # customization intact while still respecting platform constraints.
+    brand_max_size = getattr(ctx, "question_max_font_size", None) or QUESTION_MAX_FONT_SIZE
+    max_size = round(brand_max_size * profile.question_font_scale)
     lines, font_question, line_height = fit_text(
         draw, segment.text, ctx.font_path,
-        max_width=QUESTION_MAX_TEXT_WIDTH, max_block_height=max_block_height,
+        max_width=profile.question_max_text_width, max_block_height=max_block_height,
         min_size=QUESTION_MIN_FONT_SIZE, max_size=max_size,
         size_step=QUESTION_FONT_SIZE_STEP, max_lines=QUESTION_MAX_LINES,
         line_spacing=QUESTION_LINE_SPACING,
@@ -113,8 +130,8 @@ def render(segment, ctx) -> str:
     # visual callback rather than a new closing motif.
     draw_archival_divider(draw, center_x=540, y=divider_y, total_width=480)
 
-    draw.text((542, 1882), ctx.watermark_text, font=font_brand, fill=(0, 0, 0, 180), anchor="mm")
-    draw.text((540, 1880), ctx.watermark_text, font=font_brand, fill=(255, 255, 255, 160), anchor="mm")
+    draw.text((542, profile.watermark_y + 2), ctx.watermark_text, font=font_brand, fill=(0, 0, 0, 180), anchor="mm")
+    draw.text((540, profile.watermark_y), ctx.watermark_text, font=font_brand, fill=(255, 255, 255, 160), anchor="mm")
 
     frame_path = f"{ctx.work_dir}/frame_{segment.id}.jpg"
     canvas.save(frame_path, "JPEG", quality=95)

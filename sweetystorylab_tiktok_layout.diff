@@ -1,0 +1,510 @@
+diff --git a/core/pipeline/cli.py b/core/pipeline/cli.py
+index c608f54..1f79edf 100644
+--- a/core/pipeline/cli.py
++++ b/core/pipeline/cli.py
+@@ -13,17 +13,29 @@ story's full output to its own numbered folder under output/. Omit it
+ entirely and behavior is identical to before this flag existed --
+ single story, normal publish-or-dry-run path, same exit codes.
+ 
++--platform selects a Platform Layout Profile (core/renderers/
++layout_profiles.py) -- "facebook" (default) or "tiktok". Omit it
++entirely and behavior is byte-for-byte identical to before this flag
++existed. Facebook keeps auto-publishing exactly as before; any other
++platform renders the video with that platform's layout and skips
++auto-publish (no automated upload path exists yet -- the file is left
++for manual upload, matching current practice) rather than touching
++FacebookReelsProvider or posting the wrong layout to Facebook.
++
+ Exit codes (for GitHub Actions to branch on), unchanged from before:
+-  0 = pipeline completed and either published successfully or
+-      completed a valid dry run (expected for brands without a live
+-      Facebook Page/token yet -- not a failure).
++  0 = pipeline completed and either published successfully, completed
++      a valid dry run (expected for brands without a live Facebook
++      Page/token yet), or rendered successfully for a platform with no
++      auto-publish path (e.g. --platform tiktok) -- none of these are
++      failures.
+   1 = pipeline crashed before completion (config error, API error,
+       rendering error, etc.) -- something is broken and needs eyes.
+   2 = pipeline completed end-to-end (video was generated) but the
+-      real publish attempt failed -- content exists locally but did
+-      not reach Facebook. Distinguished from exit 1 so GitHub Actions
+-      logs/alerts can tell "nothing was produced" apart from
+-      "something was produced but publishing failed."
++      real Facebook publish attempt failed -- content exists locally
++      but did not reach Facebook. Distinguished from exit 1 so GitHub
++      Actions logs/alerts can tell "nothing was produced" apart from
++      "something was produced but publishing failed." Not reachable
++      for non-Facebook platforms, since they never attempt a publish.
+ --count mode always exits 0 or 1 (crash) -- there's no publish step
+ to fail, by design.
+ """
+@@ -56,6 +68,13 @@ def main(argv=None) -> int:
+              "save each to its own numbered folder under output/. "
+              "Omit for normal single-story behavior (unchanged).",
+     )
++    parser.add_argument(
++        "--platform", default="facebook", choices=["facebook", "tiktok"],
++        help="Platform Layout Profile to render with (default: facebook, "
++             "unchanged behavior). 'tiktok' renders with TikTok-safe "
++             "layout and skips auto-publish -- see core/renderers/"
++             "layout_profiles.py.",
++    )
+     args = parser.parse_args(argv)
+ 
+     if args.count is not None:
+@@ -64,6 +83,7 @@ def main(argv=None) -> int:
+                 brand_id=args.brand,
+                 count=args.count,
+                 brands_root=args.brands_root,
++                platform=args.platform,
+             )
+         except Exception as e:
+             print(f"[{args.brand}] BATCH GENERATION FAILED: {e}", file=sys.stderr)
+@@ -75,6 +95,7 @@ def main(argv=None) -> int:
+             brand_id=args.brand,
+             brands_root=args.brands_root,
+             db_path=args.db_path,
++            platform=args.platform,
+         )
+     except Exception as e:
+         print(f"[{args.brand}] PIPELINE FAILED before completion: {e}", file=sys.stderr)
+@@ -82,6 +103,15 @@ def main(argv=None) -> int:
+ 
+     publish_result = result["publish_result"]
+ 
++    if args.platform != "facebook":
++        # No automated upload path for this platform -- the video was
++        # rendered with the correct layout; real Facebook publish was
++        # never attempted, so publish_result here always reflects a
++        # deliberate skip, not a dry run or a failure.
++        print(f"[{args.brand}] Rendered for platform='{args.platform}'. "
++              f"video_path={result['video_path']} -- {publish_result.detail}")
++        return 0
++
+     if publish_result.dry_run:
+         print(f"[{args.brand}] Completed (dry run). {publish_result.detail}")
+         return 0
+diff --git a/core/pipeline/run.py b/core/pipeline/run.py
+index ce76573..4997582 100644
+--- a/core/pipeline/run.py
++++ b/core/pipeline/run.py
+@@ -14,6 +14,7 @@ from ..config.loader import load_brand_config
+ from ..config import platform as platform_config
+ from ..story.engine import generate_story
+ from ..renderers.registry import render_segment, get_spec
++from ..renderers import layout_profiles
+ from ..providers.llm.groq_provider import GroqProvider
+ from ..providers.image.pollinations_provider import PollinationsProvider
+ from ..providers.tts.edge_tts_provider import EdgeTTSProvider
+@@ -21,6 +22,7 @@ from ..providers.tts.elevenlabs_provider import ElevenLabsProvider
+ from ..providers.tts.orchestrator import generate_voice
+ from ..providers.music.local_file_provider import LocalFileMusicProvider
+ from ..providers.publish.facebook_provider import FacebookReelsProvider
++from ..providers.publish.base import PublishResult
+ from ..video.assembler import build_video
+ from ..storage.log_store import init_db, log_result
+ 
+@@ -30,7 +32,7 @@ class RenderContext:
+     styling so renderers stay generic across brands."""
+     def __init__(self, work_dir, title, watermark_text, font_path,
+                  total_narration_scenes, question_max_font_size=None,
+-                 question_text_color=None):
++                 question_text_color=None, layout_profile=None):
+         self.work_dir = work_dir
+         self.title = title
+         self.watermark_text = watermark_text
+@@ -38,12 +40,17 @@ class RenderContext:
+         self.total_narration_scenes = total_narration_scenes
+         self.question_max_font_size = question_max_font_size
+         self.question_text_color = question_text_color
++        # Platform Layout Profile (see core/renderers/layout_profiles.py).
++        # Defaults to Facebook -- every existing caller that doesn't pass
++        # this argument keeps producing identical output to before.
++        self.layout_profile = layout_profile or layout_profiles.FACEBOOK
+         self.image_path = None  # set per-segment before rendering
+         self.scene_index = 0    # set per-segment before rendering
+ 
+ 
+ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.db",
+-              force_dry_run: bool = False, dedup_kwargs: dict = None):
++              force_dry_run: bool = False, dedup_kwargs: dict = None,
++              platform: str = "facebook"):
+     """force_dry_run is purely a developer/testing convenience (see
+     run_brand_batch below) -- when True, publishing is skipped
+     regardless of whether real credentials exist. Default behavior
+@@ -57,7 +64,23 @@ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.
+     dedup_module a brand supplies may honor, the same way brand parsers
+     and fallback providers all accept `brand_id=`. Defaults to None,
+     meaning the dedup module uses its own default persistence location
+-    (the canonical, production file)."""
++    (the canonical, production file).
++
++    platform: which Platform Layout Profile (core/renderers/
++    layout_profiles.py) to render with -- "facebook" (default) or
++    "tiktok". This ONLY changes rendering geometry (title/watermark/
++    question-slide sizing+position, subtitle margin). It does not
++    touch prompts, story generation, images, music, voice, or timing.
++
++    Publishing stays Facebook-only, unchanged, for platform="facebook"
++    (the default -- so every existing call site behaves exactly as
++    before). For any other platform, the real Facebook publish call is
++    skipped -- there is no automated TikTok upload yet, so the
++    rendered video is left for manual upload, matching current
++    practice -- and publish_result comes back as a non-dry-run "skip"
++    so callers/logs can tell it apart from an actual dry run."""
++    layout_profile = layout_profiles.get_profile(platform)
++
+     brand_dir = os.path.join(brands_root, brand_id)
+     config = load_brand_config(brand_dir)
+ 
+@@ -131,6 +154,7 @@ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.
+             total_narration_scenes=narration_scene_count,
+             question_max_font_size=config.question_max_font_size,
+             question_text_color=config.question_text_color,
++            layout_profile=layout_profile,
+         )
+         # Segments with no image_prompt of their own (e.g. question_slide)
+         # reuse the most recently generated narration image as their
+@@ -170,18 +194,37 @@ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.
+     music_path = music_provider.generate()
+ 
+     output_path = os.path.join(work_dir, "final.mp4")
+-    build_video(rendered_segments, voice_path, srt_path, work_dir, output_path, music_path)
++    build_video(rendered_segments, voice_path, srt_path, work_dir, output_path, music_path,
++                layout_profile=layout_profile)
+ 
+-    publisher = FacebookReelsProvider(
+-        page_id=config.facebook.page_id,
+-        access_token=config.facebook.access_token,
+-        is_dry_run=(config.facebook.is_dry_run or force_dry_run),
+-    )
+     # CORRECTED (architecture review): real post.py uses
+     # f"{caption}\n\n{hashtags}" -- this previously used a single
+     # space, never verified until now. Real parity, not a style choice.
+     caption = f"{story.caption}\n\n{' '.join(story.hashtags)}"
+-    publish_result = publisher.publish(output_path, story.title, caption)
++
++    if platform == "facebook":
++        publisher = FacebookReelsProvider(
++            page_id=config.facebook.page_id,
++            access_token=config.facebook.access_token,
++            is_dry_run=(config.facebook.is_dry_run or force_dry_run),
++        )
++        publish_result = publisher.publish(output_path, story.title, caption)
++    else:
++        # No automated upload path for this platform yet -- the video
++        # is rendered with the correct layout and left here for manual
++        # upload (matches current Horror Lab TikTok practice). This
++        # deliberately does NOT call FacebookReelsProvider -- publishing
++        # a tiktok-profile video to Facebook would be wrong, and the
++        # real Facebook publish path (above) is completely untouched.
++        publish_result = PublishResult(
++            success=True,
++            dry_run=False,
++            detail=(
++                f"Rendered for platform='{platform}' -- no automated upload "
++                f"configured for this platform yet. Video is ready at "
++                f"{output_path} for manual upload."
++            ),
++        )
+ 
+     init_db(db_path)
+     status = "success" if (publish_result.success or publish_result.dry_run) else "failed"
+@@ -199,7 +242,7 @@ def run_brand(brand_id: str, brands_root: str = "brands", db_path: str = "posts.
+ 
+ 
+ def run_brand_batch(brand_id: str, count: int, brands_root: str = "brands",
+-                     output_root: str = "output"):
++                     output_root: str = "output", platform: str = "facebook"):
+     """Developer/testing convenience: generate `count` completely
+     independent stories in one run, never publishing, saving each
+     story's full output (generated story JSON, images, video,
+@@ -212,6 +255,11 @@ def run_brand_batch(brand_id: str, count: int, brands_root: str = "brands",
+ 
+     Purely additive on top of run_brand() -- no schema, renderer,
+     prompt, or registry changes; no brand-specific logic here either.
++
++    platform: same Platform Layout Profile selector as run_brand()
++    (default "facebook", so existing --count usage is unaffected).
++    Useful for generating a batch of TikTok-profile videos to review
++    before wider use, without publishing anything either way.
+     """
+     import dataclasses
+     import json
+@@ -243,6 +291,7 @@ def run_brand_batch(brand_id: str, count: int, brands_root: str = "brands",
+             db_path=os.path.join(story_dir, "log.db"),
+             force_dry_run=True,
+             dedup_kwargs=batch_dedup_kwargs,
++            platform=platform,
+         )
+ 
+         # Copy everything the run actually produced (images, rendered
+@@ -267,6 +316,7 @@ def run_brand_batch(brand_id: str, count: int, brands_root: str = "brands",
+                 "timestamp": timestamp,
+                 "title": story.title,
+                 "tts_provider_used": result["tts_used"],
++                "platform": platform,
+                 "publish_mode": "dry_run (forced -- --count never publishes)",
+             }, f, indent=2, ensure_ascii=False)
+ 
+diff --git a/core/renderers/narration_scene.py b/core/renderers/narration_scene.py
+index 3c0ac9c..af86509 100644
+--- a/core/renderers/narration_scene.py
++++ b/core/renderers/narration_scene.py
+@@ -9,19 +9,34 @@ this file owns only its own layout constants and drawing calls.
+ Layout notes:
+   - Hero region: HERO_HEIGHT=480px (~25% of frame).
+   - Title wraps into up to 3 balanced lines, adaptively sized between
+-    TITLE_MIN_FONT_SIZE and TITLE_MAX_FONT_SIZE.
++    a platform-supplied min/max font size (see core/renderers/
++    layout_profiles.py -- title_min_font_size / title_max_font_size).
+   - Title block is bottom-anchored to the divider (TITLE_GROUP_GAP
+     above it), not centered independently -- title, divider, and
+     scene dots read as one composed group; leftover space is absorbed
+-    above the title, not wedged between title and divider.
++    above the title, not wedged between title and divider. The
++    platform's title_area_top_padding acts as a hard floor on top of
++    this, so long titles can never render above a platform's unsafe
++    top zone (e.g. TikTok's search bar).
+   - Main photo paste offset: y=500 (below the enlarged hero region).
+-
+-Unchanged: watermark position/size/style, subtitle rendering (owned by
+-core/video/assembler.py), scene-dot indicator logic (only its position
+-moved to stay attached to the divider).
++    This, HERO_HEIGHT, and the divider/scene-dot position are the same
++    for every platform -- only text sizing/position and the watermark
++    move; image placement is deliberately untouched (see brief).
++
++Platform selection: `ctx.layout_profile` (set by core/pipeline/run.py
++from core/renderers/layout_profiles.py) supplies every value that
++varies by platform. Facebook's profile values equal the historical
++hardcoded constants this file used to define directly -- so
++platform="facebook" (the default) produces byte-identical output to
++before this change.
++
++Unchanged: subtitle rendering (owned by core/video/assembler.py),
++scene-dot indicator logic (position stays attached to the divider,
++which does not move by platform).
+ """
+ from PIL import Image, ImageDraw, ImageFont, ImageFilter
+ from .text_layout import fit_text, draw_archival_divider
++from .layout_profiles import FACEBOOK as _DEFAULT_PROFILE
+ 
+ CANVAS_WIDTH = 1080
+ CANVAS_HEIGHT = 1920
+@@ -29,12 +44,8 @@ CANVAS_HEIGHT = 1920
+ HERO_HEIGHT = 480
+ HERO_FOOTER_HEIGHT = 100
+ TITLE_AREA_HEIGHT = HERO_HEIGHT - HERO_FOOTER_HEIGHT
+-TITLE_AREA_TOP_PADDING = 20
+ TITLE_AREA_BOTTOM_PADDING = 20
+-TITLE_MAX_TEXT_WIDTH = 920
+ 
+-TITLE_MAX_FONT_SIZE = 120
+-TITLE_MIN_FONT_SIZE = 40
+ TITLE_FONT_SIZE_STEP = 4
+ TITLE_MAX_LINES = 3
+ TITLE_LINE_SPACING = 1.15
+@@ -44,6 +55,11 @@ IMAGE_PASTE_Y = HERO_HEIGHT + 20
+ 
+ 
+ def render(segment, ctx) -> str:
++    # Defensive fallback (e.g. a RenderContext built without going
++    # through run_brand()) -- resolves to the exact same constants this
++    # file used to hardcode, so behavior is unchanged either way.
++    profile = getattr(ctx, "layout_profile", None) or _DEFAULT_PROFILE
++
+     img = Image.open(ctx.image_path).convert("RGB")
+ 
+     bg = img.resize((CANVAS_WIDTH, CANVAS_HEIGHT), Image.LANCZOS)
+@@ -77,11 +93,11 @@ def render(segment, ctx) -> str:
+     except Exception:
+         font_brand = font_scene = ImageFont.load_default()
+ 
+-    max_block_height = TITLE_AREA_HEIGHT - TITLE_AREA_TOP_PADDING - TITLE_AREA_BOTTOM_PADDING
++    max_block_height = TITLE_AREA_HEIGHT - profile.title_area_top_padding - TITLE_AREA_BOTTOM_PADDING
+     lines, font_title, line_height = fit_text(
+         draw, ctx.title, ctx.font_path,
+-        max_width=TITLE_MAX_TEXT_WIDTH, max_block_height=max_block_height,
+-        min_size=TITLE_MIN_FONT_SIZE, max_size=TITLE_MAX_FONT_SIZE,
++        max_width=profile.title_max_text_width, max_block_height=max_block_height,
++        min_size=profile.title_min_font_size, max_size=profile.title_max_font_size,
+         size_step=TITLE_FONT_SIZE_STEP, max_lines=TITLE_MAX_LINES,
+         line_spacing=TITLE_LINE_SPACING,
+     )
+@@ -91,7 +107,7 @@ def render(segment, ctx) -> str:
+ 
+     block_height = line_height * len(lines)
+     block_bottom = divider_y - TITLE_GROUP_GAP
+-    block_top = max(block_bottom - block_height, TITLE_AREA_TOP_PADDING)
++    block_top = max(block_bottom - block_height, profile.title_area_top_padding)
+     first_line_y = block_top + (line_height / 2)
+ 
+     for i, line in enumerate(lines):
+@@ -106,8 +122,8 @@ def render(segment, ctx) -> str:
+     dots = "\u25cf " * filled + "\u25cb " * max(0, total - filled)
+     draw.text((540, dots_y), dots.strip(), font=font_scene, fill=(255, 255, 255, 180), anchor="mm")
+ 
+-    draw.text((542, 1882), ctx.watermark_text, font=font_brand, fill=(0, 0, 0, 180), anchor="mm")
+-    draw.text((540, 1880), ctx.watermark_text, font=font_brand, fill=(255, 255, 255, 160), anchor="mm")
++    draw.text((542, profile.watermark_y + 2), ctx.watermark_text, font=font_brand, fill=(0, 0, 0, 180), anchor="mm")
++    draw.text((540, profile.watermark_y), ctx.watermark_text, font=font_brand, fill=(255, 255, 255, 160), anchor="mm")
+ 
+     frame_path = f"{ctx.work_dir}/frame_{segment.id}.jpg"
+     canvas.save(frame_path, "JPEG", quality=95)
+diff --git a/core/renderers/question_slide.py b/core/renderers/question_slide.py
+index bd73857..a99716b 100644
+--- a/core/renderers/question_slide.py
++++ b/core/renderers/question_slide.py
+@@ -23,16 +23,24 @@ layout system:
+ Genre-neutral: works for a horror comment-bait question exactly as
+ well as a documentary closing question -- the text itself is brand/
+ prompt content, not renderer logic.
++
++Platform selection: `ctx.layout_profile` (see core/renderers/
++layout_profiles.py) supplies question_max_text_width,
++question_stage_bottom, and question_font_scale. QUESTION_STAGE_TOP is
++NOT platform-varying -- 450 already sits well clear of every
++platform's top UI, so only the bottom of the stage (closer to
++bottom-edge UI like TikTok's caption area) and the width (the
++right-side action column) move by platform. Facebook's profile values
++reproduce this file's original hardcoded constants exactly.
+ """
+ from PIL import Image, ImageDraw, ImageFont, ImageFilter
+ from .text_layout import fit_text, draw_archival_divider
++from .layout_profiles import FACEBOOK as _DEFAULT_PROFILE
+ 
+ CANVAS_WIDTH = 1080
+ CANVAS_HEIGHT = 1920
+ 
+-QUESTION_MAX_TEXT_WIDTH = 920
+ QUESTION_STAGE_TOP = 450         # top of the region the whole group can occupy (moved up 50px)
+-QUESTION_STAGE_BOTTOM = 1650     # bottom of that region (moved up 50px, same stage height)
+ QUESTION_GROUP_GAP = 40          # gap between the bottom of the question block and the divider
+ DIVIDER_THICKNESS = 3
+ 
+@@ -52,6 +60,9 @@ QUESTION_GOLD = (198, 156, 84)   # brand-neutral DEFAULT (used when RenderContex
+ 
+ 
+ def render(segment, ctx) -> str:
++    # Defensive fallback, same rationale as narration_scene.py.
++    profile = getattr(ctx, "layout_profile", None) or _DEFAULT_PROFILE
++
+     try:
+         img = Image.open(ctx.image_path).convert("RGB")
+         bg = img.resize((CANVAS_WIDTH, CANVAS_HEIGHT), Image.LANCZOS)
+@@ -67,16 +78,22 @@ def render(segment, ctx) -> str:
+     except Exception:
+         font_brand = ImageFont.load_default()
+ 
+-    stage_height = QUESTION_STAGE_BOTTOM - QUESTION_STAGE_TOP
++    stage_height = profile.question_stage_bottom - QUESTION_STAGE_TOP
+     max_block_height = stage_height - QUESTION_GROUP_GAP - DIVIDER_THICKNESS
+     # Brand-overridable ceiling: falls back to the module default if the
+     # caller doesn't provide one via RenderContext (e.g. direct/isolated
+     # renderer tests). No brand awareness lives in this file -- it's an
+     # opaque value forwarded from config, same pattern as font_path etc.
+-    max_size = getattr(ctx, "question_max_font_size", None) or QUESTION_MAX_FONT_SIZE
++    # The platform's question_font_scale is then applied on top of
++    # whichever ceiling is already in force (brand override or module
++    # default) -- 1.0 for Facebook (no change), <1.0 for platforms that
++    # need smaller text to fit a tighter safe area. This keeps brand
++    # customization intact while still respecting platform constraints.
++    brand_max_size = getattr(ctx, "question_max_font_size", None) or QUESTION_MAX_FONT_SIZE
++    max_size = round(brand_max_size * profile.question_font_scale)
+     lines, font_question, line_height = fit_text(
+         draw, segment.text, ctx.font_path,
+-        max_width=QUESTION_MAX_TEXT_WIDTH, max_block_height=max_block_height,
++        max_width=profile.question_max_text_width, max_block_height=max_block_height,
+         min_size=QUESTION_MIN_FONT_SIZE, max_size=max_size,
+         size_step=QUESTION_FONT_SIZE_STEP, max_lines=QUESTION_MAX_LINES,
+         line_spacing=QUESTION_LINE_SPACING,
+@@ -113,8 +130,8 @@ def render(segment, ctx) -> str:
+     # visual callback rather than a new closing motif.
+     draw_archival_divider(draw, center_x=540, y=divider_y, total_width=480)
+ 
+-    draw.text((542, 1882), ctx.watermark_text, font=font_brand, fill=(0, 0, 0, 180), anchor="mm")
+-    draw.text((540, 1880), ctx.watermark_text, font=font_brand, fill=(255, 255, 255, 160), anchor="mm")
++    draw.text((542, profile.watermark_y + 2), ctx.watermark_text, font=font_brand, fill=(0, 0, 0, 180), anchor="mm")
++    draw.text((540, profile.watermark_y), ctx.watermark_text, font=font_brand, fill=(255, 255, 255, 160), anchor="mm")
+ 
+     frame_path = f"{ctx.work_dir}/frame_{segment.id}.jpg"
+     canvas.save(frame_path, "JPEG", quality=95)
+diff --git a/core/video/assembler.py b/core/video/assembler.py
+index ab78096..9d22ee5 100644
+--- a/core/video/assembler.py
++++ b/core/video/assembler.py
+@@ -22,11 +22,20 @@ SUBTITLE STYLING (Direction A + C, generic across both brands):
+     instead of the previous -vf/-filter_complex mix -- an internal
+     robustness improvement, not a public interface change; build_video()'s
+     signature and behavior are otherwise unchanged.
++
++PLATFORM LAYOUT PROFILES: subtitle_target_margin_px now comes from a
++LayoutProfile (see core/renderers/layout_profiles.py) instead of a
++hardcoded module constant, so a platform's caption/UI overlay can be
++cleared without touching subtitle content, timing, or styling.
++Facebook's profile value (150) equals the original hardcoded constant,
++so build_video(..., layout_profile=None) -- or the explicit Facebook
++profile -- produces byte-identical output to before this change.
+ """
+ import json
+ import os
+ import subprocess
+ from PIL import Image, ImageDraw
++from ..renderers.layout_profiles import FACEBOOK as _DEFAULT_PROFILE
+ 
+ CANVAS_WIDTH = 1080
+ CANVAS_HEIGHT = 1920
+@@ -59,14 +68,12 @@ SUBTITLE_GRADIENT_EASE = 1.6       # >1 keeps the top of the gradient nearly inv
+ # version changes this default, recalibrate this one constant by
+ # rendering a test frame and measuring the actual text position the
+ # same way (see the verification method used when this was derived).
++# This scale factor itself is a libass/FFmpeg implementation detail,
++# not a platform concern -- it stays a module constant for every
++# platform; only the *target* margin (how far up the platform needs
++# the text to sit) varies, via LayoutProfile.
+ LIBASS_MARGINV_SCALE_FACTOR = 6.8
+ 
+-# Desired literal on-screen distance (in real output pixels) from the
+-# bottom edge to the subtitle text -- chosen to sit well within the
+-# gradient zone (y=1460-1920) and clear of the watermark (y~1880).
+-SUBTITLE_TARGET_MARGIN_PX = 150
+-SUBTITLE_MARGIN_V = round(SUBTITLE_TARGET_MARGIN_PX / LIBASS_MARGINV_SCALE_FACTOR)
+-
+ 
+ def _generate_subtitle_gradient(work_dir: str) -> str:
+     """A soft, generic bottom gradient (transparent -> darkened black)
+@@ -84,14 +91,22 @@ def _generate_subtitle_gradient(work_dir: str) -> str:
+ 
+ 
+ def build_video(rendered_segments, voice_path: str, srt_path: str,
+-                 work_dir: str, output_path: str, music_path: str = None) -> str:
++                 work_dir: str, output_path: str, music_path: str = None,
++                 layout_profile=None) -> str:
+     """
+     rendered_segments: list of (frame_path, segment) tuples, in order.
+         segment.duration_mode == "audio_length" segments split the
+         narration audio's total duration evenly among themselves.
+         segment.duration_mode == "fixed" segments use their own
+         duration_seconds.
++
++    layout_profile: a core.renderers.layout_profiles.LayoutProfile.
++        Defaults to the Facebook profile (the historical hardcoded
++        margin), so every existing caller that doesn't pass this
++        argument is completely unaffected.
+     """
++    profile = layout_profile or _DEFAULT_PROFILE
++    subtitle_margin_v = round(profile.subtitle_target_margin_px / LIBASS_MARGINV_SCALE_FACTOR)
+     probe = subprocess.run(
+         ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", voice_path],
+         capture_output=True, text=True,
+@@ -198,7 +213,7 @@ def build_video(rendered_segments, voice_path: str, srt_path: str,
+         "Outline=1,"
+         "Shadow=1,"
+         "Alignment=2,"
+-        f"MarginV={SUBTITLE_MARGIN_V}"
++        f"MarginV={subtitle_margin_v}"
+     )
+ 
+     has_music = music_path is not None and os.path.exists(music_path)
