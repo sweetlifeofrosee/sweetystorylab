@@ -74,6 +74,12 @@ jobs:
         continue-on-error: true
         env:
           GH_SECRETS_PAT: ${{ secrets.GH_SECRETS_PAT }}
+          # GH_SECRETS_PAT is a fine-grained PAT scoped to ONLY this
+          # repo, with Repository permissions -> Secrets: "Read and
+          # write" and nothing else -- see
+          # scripts/persist_tiktok_credentials.py's module docstring
+          # for the exact minimum-permission checklist and why it
+          # can't be scoped any narrower than that.
         run: python scripts/persist_tiktok_credentials.py
 
       - name: Save log

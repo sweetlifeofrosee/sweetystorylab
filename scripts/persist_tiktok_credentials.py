@@ -43,10 +43,54 @@ manual inspection/debugging, and that's surfaced explicitly rather
 than hidden.
 
 REQUIRED ENV VARS:
-  GH_SECRETS_PAT      Fine-grained PAT scoped to ONLY "Secrets: write"
-                       on this repo. Deliberately not GITHUB_TOKEN --
-                       the default Actions token cannot manage repo
-                       secrets, this needs its own credential.
+  GH_SECRETS_PAT      A fine-grained PAT and NOTHING else -- not
+                       GITHUB_TOKEN (the default Actions token cannot
+                       manage repo secrets at all; there's no scope
+                       for it). Minimum permissions, verified against
+                       GitHub's own REST API reference for these
+                       exact endpoints (Create/Delete a repository
+                       secret, Get a repository public key):
+
+                         Resource owner: this repo's owner
+                         Repository access: "Only select repositories"
+                           -> sweetystorylab ONLY, nothing else
+                         Repository permissions -> Secrets: "Read and
+                           write" -- this is the only UI option that
+                           grants write (fine-grained PATs only offer
+                           No access / Read-only / Read and write for
+                           any permission, there is no write-only
+                           tier). GitHub's API docs list the actual
+                           requirement for these endpoints as
+                           "Secrets" repository permissions (write) --
+                           selecting "Read and write" is how that's
+                           satisfied in the UI.
+                         No other repository permissions needed --
+                           not Contents, not Metadata, not Actions.
+                           This PAT cannot read code, open PRs, or
+                           do anything except manage this repo's
+                           Actions secrets.
+                         No organization permissions needed -- this
+                           script only ever calls the repository-
+                           level secrets endpoints
+                           (/repos/{owner}/{repo}/actions/secrets/...),
+                           never the org-level ones.
+                         Expiration: set one. This PAT is itself a
+                           long-lived credential sitting in GitHub
+                           secrets -- rotate it periodically the same
+                           way you'd rotate any other static secret.
+
+                       One more thing worth knowing: even "Secrets:
+                       Read and write" does NOT let this PAT read back
+                       any secret's plaintext value -- GitHub's API
+                       never returns a secret's value once stored,
+                       encrypted or not, regardless of permission
+                       level. "Read" here only means "list secret
+                       names/metadata," not "see the value." So this
+                       PAT being broader than strictly necessary
+                       (write-only isn't offered) still can't be used
+                       to exfiltrate any *other* secret already in
+                       this repo, including FB_PAGE_ACCESS_TOKEN,
+                       GROQ_API_KEY, etc.
   GITHUB_REPOSITORY   "owner/repo" -- set automatically by GitHub
                        Actions; only needs setting manually for local
                        testing.
@@ -113,7 +157,18 @@ def main() -> int:
     try:
         public_key_id, public_key_value = _get_repo_public_key(repo, pat)
 
-        # refresh_token FIRST -- see ATOMICITY NOTE.
+        # DO NOT REORDER: refresh_token must be written before
+        # access_token. Only refresh_token is ever read back by the
+        # pipeline (TikTokProvider re-derives access_token fresh from
+        # refresh_token at the start of every publish() call -- it
+        # never reads a stored access_token). So if this script dies
+        # between the two writes for any reason, dying AFTER the
+        # refresh_token write and BEFORE the access_token write is the
+        # only ordering where that crash doesn't risk breaking the
+        # next scheduled run. Swapping this order would mean a crash
+        # could lose refresh_token silently while access_token (which
+        # nothing depends on) gets saved instead -- exactly backwards.
+        # Full reasoning: module docstring's ATOMICITY NOTE.
         _put_secret(repo, pat, refresh_secret_name, payload["refresh_token"],
                     public_key_id, public_key_value)
         print(f"Updated secret {refresh_secret_name}.")
