@@ -164,6 +164,107 @@ def refresh_access_token(client_key: str, client_secret: str,
     )
 
 
+class TikTokAuthorizationCodeInvalid(TikTokAuthError):
+    """
+    The one-time authorization `code` (from the /v2/auth/authorize/
+    redirect) was rejected -- invalid_grant. Distinct from
+    TikTokReauthRequired on purpose: that class is about an ongoing
+    refresh_token dying after months of use; this is about a
+    single-use code that's already expired (TikTok's codes are
+    short-lived, typically minutes) or was already exchanged once.
+    Recovery is different too -- there's no "refresh" to retry, the
+    fix is simply to redo the authorize-URL step (tiktok_initial_auth.py
+    start) to get a fresh code and try again promptly.
+    """
+
+
+def exchange_authorization_code(client_key: str, client_secret: str, code: str,
+                                 redirect_uri: str, timeout: int = 30) -> TokenPair:
+    """
+    One-time exchange: turns the `code` TikTok's /v2/auth/authorize/
+    redirect handed back into the FIRST TokenPair for an account --
+    the thing that doesn't exist yet before initial setup. Every
+    refresh after this one goes through refresh_access_token() instead
+    (grant_type=refresh_token); this function is only ever called
+    once per account connection, from scripts/tiktok_initial_auth.py.
+
+    redirect_uri MUST be byte-for-byte identical to the redirect_uri
+    used when the authorization URL was built and TikTok redirected
+    the browser back -- this is standard OAuth authorization-code
+    behavior, not a TikTok-specific quirk, and TikTok will reject the
+    exchange with invalid_grant if it doesn't match exactly (trailing
+    slash, http vs https, anything).
+
+    Deliberately NOT sharing an internal helper with
+    refresh_access_token() despite the near-identical response
+    handling -- the two functions are kept independent so a change to
+    one can't accidentally alter the other's behavior. Some
+    duplication is the intentional trade-off for that isolation.
+
+    Raises:
+        TikTokAuthorizationCodeInvalid: code is dead (expired, already
+            used, or simply wrong) -- get a fresh one via
+            tiktok_initial_auth.py's `start` command, don't retry this
+            same code
+        TikTokAuthNetworkError: the request itself failed, or TikTok's
+            response didn't match the documented shape
+    """
+    try:
+        response = requests.post(
+            _TOKEN_URL,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Cache-Control": "no-cache",
+            },
+            data={
+                "client_key": client_key,
+                "client_secret": client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": redirect_uri,
+            },
+            timeout=timeout,
+        )
+    except requests.RequestException as e:
+        raise TikTokAuthNetworkError(f"Request to TikTok token endpoint failed: {e}") from e
+
+    if response.status_code != 200:
+        body = _safe_json(response)
+        error_code = body.get("error") if body else None
+        if error_code == "invalid_grant":
+            raise TikTokAuthorizationCodeInvalid(
+                "TikTok rejected the authorization code (invalid_grant) -- "
+                "it may be expired (codes are short-lived) or already used. "
+                "Run `tiktok_initial_auth.py start` again for a fresh code."
+            )
+        detail = body.get("error_description") if body else response.text
+        raise TikTokAuthNetworkError(
+            f"TikTok token endpoint returned {response.status_code}: {detail}"
+        )
+
+    body = _safe_json(response)
+    if body is None:
+        raise TikTokAuthNetworkError(
+            "TikTok token endpoint returned 200 but the response body "
+            "wasn't valid JSON."
+        )
+
+    missing = [k for k in ("access_token", "refresh_token", "expires_in", "open_id")
+               if k not in body]
+    if missing:
+        raise TikTokAuthNetworkError(
+            f"TikTok token endpoint response is missing expected field(s) "
+            f"{missing} -- response shape may have changed: {body}"
+        )
+
+    return TokenPair(
+        access_token=body["access_token"],
+        refresh_token=body["refresh_token"],
+        expires_in=body["expires_in"],
+        open_id=body["open_id"],
+    )
+
+
 def _safe_json(response) -> Optional[dict]:
     try:
         return response.json()

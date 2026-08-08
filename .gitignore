@@ -11,3 +11,11 @@ output/
 # TikTok token-refresh handoff file (core/pipeline/run.py)
 # -- carries a live access_token/refresh_token pair, never committed.
 .tiktok_refreshed_credentials.json
+
+# TikTok one-time initial OAuth setup (scripts/tiktok_initial_auth.py)
+# -- also a live token pair; a DIFFERENT file from the one above on
+# purpose, so the one-time setup flow and the ongoing scheduled
+# refresh flow can never collide or be confused with each other.
+.tiktok_initial_credentials.json
+# CSRF state nonce for the above -- not secret, just avoids re-typing.
+.tiktok_oauth_state.json
