@@ -56,9 +56,12 @@ responsible for deleting once you've copied refresh_token into GitHub
 Secrets.
 """
 import argparse
+import getpass
 import json
 import os
+import platform
 import stat
+import subprocess
 import sys
 from urllib.parse import urlencode
 
@@ -174,14 +177,7 @@ def cmd_exchange(args) -> int:
     }
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
-    # 0600: owner read/write only. Best-effort -- some filesystems
-    # (e.g. certain CI/sandbox mounts) may not honor this, which is
-    # exactly why the file is also gitignored and this script prints
-    # an explicit reminder to delete it below regardless.
-    try:
-        os.chmod(output_path, stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
+    _restrict_file_permissions(output_path)
 
     if os.path.exists(_STATE_PATH):
         os.remove(_STATE_PATH)
@@ -201,6 +197,64 @@ def cmd_exchange(args) -> int:
     print(f"  3. Delete {output_path} -- it is gitignored but still "
           f"sitting in plaintext on this machine until you remove it.")
     return 0
+
+
+def _restrict_file_permissions(path: str) -> None:
+    """
+    Restrict `path` to the current user only. Dispatches by platform
+    because os.chmod() does NOT mean the same thing on both:
+
+    - POSIX (Linux/macOS): os.chmod(0o600) genuinely restricts the
+      file to owner read/write, nothing for group/other. This is
+      real, kernel-enforced protection.
+    - Windows: os.chmod() can only toggle the FILE_ATTRIBUTE_READONLY
+      DOS attribute -- it CANNOT express POSIX group/other bits, full
+      stop. Calling os.chmod(0o600) here silently does nothing to
+      restrict access; os.stat().st_mode afterward reports a
+      synthesized 0o666 regardless of what was requested (confirmed:
+      a real run on Windows produced mode 438 == 0o666 after this
+      exact call, which is what caught this gap). Real per-user
+      restriction on Windows requires an actual ACL change, done here
+      via icacls (built into Windows, no new dependency).
+
+    Both branches are best-effort, matching the file's existing
+    safety net: it's gitignored regardless, and the caller always
+    prints an explicit "delete this file yourself" reminder
+    regardless of whether this restriction succeeded.
+    """
+    if platform.system() == "Windows":
+        _restrict_file_permissions_windows(path)
+    else:
+        try:
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        except OSError:
+            pass
+
+
+def _restrict_file_permissions_windows(path: str) -> None:
+    """
+    Strips inherited permissions and grants Full Control to ONLY the
+    current user via icacls. Takes just a path -- never a secret
+    value -- so this function cannot leak credential contents by
+    construction, regardless of how it succeeds or fails.
+    """
+    try:
+        # USERNAME is always set on real Windows. getpass.getuser() is
+        # the fallback -- unlike os.getlogin(), it doesn't require a
+        # controlling terminal (os.getlogin() raised OSError in a
+        # sandboxed/headless environment during testing, which is
+        # exactly the kind of failure this whole function needs to
+        # degrade gracefully from, not crash on).
+        username = os.environ.get("USERNAME") or getpass.getuser()
+        subprocess.run(
+            ["icacls", path, "/inheritance:r", "/grant:r", f"{username}:F"],
+            check=True, capture_output=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"WARNING: could not restrict {path} to your user account "
+              f"via icacls ({e}). It may be readable by other accounts "
+              f"on this machine -- delete it as soon as you've copied "
+              f"the values you need into GitHub Secrets.", file=sys.stderr)
 
 
 def _read_saved_state():

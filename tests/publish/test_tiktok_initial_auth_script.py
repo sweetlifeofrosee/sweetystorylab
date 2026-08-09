@@ -8,7 +8,9 @@ is mocked throughout.
 """
 import json
 import os
+import platform
 import stat
+import subprocess
 
 import pytest
 
@@ -93,12 +95,22 @@ def test_exchange_succeeds_writes_file_with_restricted_permissions_and_never_pri
     assert data["refresh_token"] == "rft.REALVALUE"
     assert data["brand_id"] == "horror_lab"
 
-    # Permissions: owner read/write only, nothing for group/other
-    # (best-effort -- some filesystems may not support this, hence
-    # checking the bits rather than asserting an exact match on
-    # platforms that could differ).
-    mode = stat.S_IMODE(os.stat(output_path).st_mode)
-    assert not (mode & stat.S_IRWXG) and not (mode & stat.S_IRWXO)
+    # Permission restriction is platform-specific -- see
+    # _restrict_file_permissions's docstring in the script itself for
+    # why (os.chmod cannot express real per-user restriction on
+    # Windows; POSIX stat bits aren't meaningful on Windows either).
+    if platform.system() == "Windows":
+        # Verify the REAL icacls-based ACL, not simulated stat bits --
+        # this branch only executes when actually run on Windows.
+        acl = subprocess.run(["icacls", output_path], capture_output=True,
+                              text=True, timeout=10).stdout
+        current_user = os.environ.get("USERNAME", "")
+        assert current_user and current_user in acl
+        for broad_group in ("Everyone", "Authenticated Users", "BUILTIN\\Users"):
+            assert broad_group not in acl
+    else:
+        mode = stat.S_IMODE(os.stat(output_path).st_mode)
+        assert not (mode & stat.S_IRWXG) and not (mode & stat.S_IRWXO)
 
     # State file is consumed/removed after a successful exchange.
     assert not os.path.exists(tiktok_initial_auth._STATE_PATH)
@@ -153,3 +165,101 @@ def test_build_authorize_url_uses_documented_scopes_and_redirect():
     # exchange will fail with redirect_uri_mismatch / invalid scope.
     assert tiktok_initial_auth.REDIRECT_URI == "https://sweetlifeofrosee.github.io/sweetystorylab/callback"
     assert tiktok_initial_auth.SCOPES == "user.info.basic,video.upload,video.publish"
+
+
+# --- _restrict_file_permissions: cross-platform credential-file protection ---
+#
+# Background: os.chmod(path, 0o600) genuinely restricts a file on
+# POSIX, but on Windows os.chmod() can only toggle the
+# FILE_ATTRIBUTE_READONLY DOS attribute -- it cannot express
+# group/other permission bits at all. Calling it there silently does
+# nothing to restrict access, and os.stat().st_mode afterward reports
+# a synthesized 0o666 regardless (confirmed by a real run: mode 438 ==
+# 0o666). _restrict_file_permissions() dispatches to a real ACL change
+# (icacls) on Windows instead. The two mocked tests below can run on
+# any host (including this Linux CI) because they mock
+# platform.system() and subprocess.run rather than requiring an actual
+# Windows machine; the third test only runs when genuinely on Windows.
+
+@pytest.mark.skipif(platform.system() == "Windows",
+                     reason="POSIX chmod semantics only apply off Windows -- "
+                            "see test_restrict_file_permissions_windows_real_acl "
+                            "for the Windows-native equivalent.")
+def test_restrict_file_permissions_posix_sets_owner_only_bits(tmp_path):
+    path = tmp_path / "creds.json"
+    path.write_text("{}")
+    tiktok_initial_auth._restrict_file_permissions(str(path))
+    mode = stat.S_IMODE(os.stat(path).st_mode)
+    assert mode == (stat.S_IRUSR | stat.S_IWUSR)
+
+
+def test_restrict_file_permissions_windows_invokes_icacls_with_current_user_only(tmp_path, monkeypatch):
+    """
+    Mocks platform.system() to force the Windows branch regardless of
+    the actual host, and mocks subprocess.run so no real icacls
+    process is ever spawned -- this verifies OUR code calls icacls
+    correctly, runnable on any CI including Linux.
+    """
+    path = str(tmp_path / "creds.json")
+    monkeypatch.setenv("USERNAME", "testuser")
+
+    import unittest.mock as mock
+    with mock.patch.object(tiktok_initial_auth.platform, "system", return_value="Windows"), \
+         mock.patch.object(tiktok_initial_auth.subprocess, "run") as mock_run:
+        tiktok_initial_auth._restrict_file_permissions(path)
+
+    mock_run.assert_called_once()
+    called_args = mock_run.call_args.args[0]
+    assert called_args[0] == "icacls"
+    assert called_args[1] == path
+    assert "/inheritance:r" in called_args
+    assert "testuser:F" in called_args
+    # Check only the actual grant-target token (before the colon in
+    # "testuser:F"), not a blanket substring scan across the whole
+    # command -- `path` is also an element of called_args, and on a
+    # real Windows machine tmp_path resolves under C:\Users\<name>\...,
+    # so "Users" legitimately appears in the path itself. Scanning
+    # every arg for that substring produces a false failure that has
+    # nothing to do with whether the actual ACL grant is overly broad.
+    grant_arg = called_args[-1]
+    assert grant_arg == "testuser:F"
+    grant_target = grant_arg.split(":", 1)[0]
+    assert grant_target not in ("Everyone", "Users", "Authenticated Users")
+
+
+def test_restrict_file_permissions_windows_icacls_failure_warns_but_does_not_raise(tmp_path, capsys):
+    """
+    If icacls itself fails (missing binary, permission issue, etc.),
+    the function must not raise -- the credential exchange already
+    succeeded and the file is already written and gitignored; a
+    protection-step failure should degrade to a loud warning, not
+    crash the whole utility. _restrict_file_permissions_windows also
+    only ever receives a bare path, never a secret value, so it
+    cannot leak credentials regardless of how it fails.
+    """
+    path = str(tmp_path / "creds.json")
+
+    import unittest.mock as mock
+    with mock.patch.object(tiktok_initial_auth.platform, "system", return_value="Windows"), \
+         mock.patch.object(tiktok_initial_auth.subprocess, "run",
+                            side_effect=OSError("icacls not found")):
+        tiktok_initial_auth._restrict_file_permissions(path)  # must not raise
+
+    err = capsys.readouterr().err
+    assert "WARNING" in err
+    assert path in err
+
+
+@pytest.mark.skipif(platform.system() != "Windows",
+                     reason="Exercises the real Windows icacls binary -- only "
+                            "meaningful and runnable on an actual Windows host.")
+def test_restrict_file_permissions_windows_real_acl(tmp_path):
+    path = tmp_path / "creds.json"
+    path.write_text("{}")
+    tiktok_initial_auth._restrict_file_permissions(str(path))
+
+    acl = subprocess.run(["icacls", str(path)], capture_output=True, text=True, timeout=10).stdout
+    current_user = os.environ.get("USERNAME", "")
+    assert current_user and current_user in acl
+    for broad_group in ("Everyone", "Authenticated Users", "BUILTIN\\Users"):
+        assert broad_group not in acl
