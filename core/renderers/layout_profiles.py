@@ -91,7 +91,13 @@ FACEBOOK = LayoutProfile(
     question_stage_bottom=1650,
     question_max_text_width=920,
     question_font_scale=1.0,
-    subtitle_target_margin_px=150,
+    # Raised +100px (was 150) -- Facebook's own caption/hashtag UI was
+    # crowding the burned-in subtitle at the old position. Verified
+    # against a real beat-splitter-produced line: this INCREASES
+    # clearance from the watermark (108px -> 208px, since watermark_y
+    # is unchanged and this only moves the subtitle further away from
+    # it), so no derived watermark adjustment is needed or made.
+    subtitle_target_margin_px=250,
     subtitle_font_size=11,
     subtitle_margin_l=0,
     subtitle_margin_r=0,
